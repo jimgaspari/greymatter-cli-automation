@@ -1,15 +1,13 @@
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List, Literal
+from typing import Optional, Dict, Any
 from pathlib import Path
 
 from ..config import settings
-from ..git_ops import git_clone_with_ephemeral_key, git_clone_https
 from ..runner import run_cmd
 from ..workflow_utils import make_run_id, ensure_workspace
-from ..schemas import CloneSpec, CreatePlatformOptions, BootstrapCoreReq, BootstrapTenantReq
+from ..schemas import BootstrapCoreReq, BootstrapTenantReq
 from ..cli_options import build_gm_create_platform_argv
-from ..git_cmd import git_has_changes, git_commit_and_push
+from ..git_cmd import clone_repo, git_has_changes, git_commit_and_push, ensure_branch, prepare_ssh_auth, ensure_git_identity
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -28,9 +26,10 @@ def bootstrap_core(req: BootstrapCoreReq, x_api_token: Optional[str] = Header(de
 
     response: Dict[str, Any] = {
         "workflow": "bootstrap-core",
-        "repo": req.repo_ssh_url,
+        "repo": req.clone.repo_url,
         "branch": req.branch,
         "depth": req.depth,
+        "steps": [],
     }
 
     # Step 0: Create unique workspace
@@ -44,18 +43,44 @@ def bootstrap_core(req: BootstrapCoreReq, x_api_token: Optional[str] = Header(de
 
     response["workspace"] = {"name": run_id, "path": workspace_path}
 
+    if req.clone.type == "ssh":
+        ssh_auth = prepare_ssh_auth(
+            workspace_path=workspace_path,
+            ssh_private_key_b64=req.clone.ssh_private_key_b64,
+            known_hosts=req.clone.known_hosts,
+            strict_host_key_checking=req.clone.strict_host_key_checking,
+        )
+        git_env = ssh_auth.env
+    else:
+        # HTTPS auth env builder you already have
+        git_env = git_clone_https(req.clone)
+
+    # now clone using that env
+    
     # Step 1: Clone repo into workspace_path/repo
     dest_dir = f"{run_id}/repo"
 
     dest_path, clone_result = clone_repo(
         clone=req.clone,
         dest_dir=dest_dir,
-        branch=req.branch,
+        branch=req.git.base_branch,
         depth=req.depth,
+        env=git_env,
     )
     response["steps"].append({"name": "git_clone", **clone_result, "dest_path": dest_path})
     if clone_result["exit_code"] != 0:
         fail("git clone", clone_result)
+    # Create new branch
+    if req.git.target_branch:
+        br = ensure_branch(
+            repo_path=dest_path,
+            git_env=git_env,
+            target_branch=req.git.target_branch,
+            push_to_remote=req.git.push_branch_to_remote,
+        )
+    response["steps"].append({"name": "git_ensure_branch", **br})
+    if br["exit_code"] != 0:
+        fail("ensure branch", br)
 
     # Step 2: greymatter create platform
     gm_argv = build_gm_create_platform_argv(req.create_platform)
@@ -77,6 +102,16 @@ def bootstrap_core(req: BootstrapCoreReq, x_api_token: Optional[str] = Header(de
             },
         )
     # Step4: git commit + push (if changes exist)
+    git_id = ensure_git_identity(
+        repo_path=dest_path,
+        env=git_env,
+        name="Greymatter Automation",
+        email="greymatter-bot@greymatter.io",
+    )
+
+    response["steps"].append({"name": "git_identity", **git_id})
+    if git_id["exit_code"] != 0:
+        fail("git identity", git_id)
     if git_has_changes(dest_path):
         commit_msg = "chore: bootstrap greymatter core"
 
@@ -124,15 +159,16 @@ def bootstrap_tenant(req: BootstrapTenantReq, x_api_token: Optional[str] = Heade
     # Step 1: clone
     dest_dir = f"{run_id}/tenant"
 
-    dest_path, clone_result = clone_repo(
+    dest_path, clone_result, git_env = clone_repo(
         clone=req.clone,
         dest_dir=dest_dir,
-        branch=req.branch,
+        branch=req.git.base_branch,
         depth=req.depth,
     )
     response["steps"].append({"name": "git_clone", **clone_result, "dest_path": dest_path})
     if clone_result["exit_code"] != 0:
         fail("git clone", clone_result)
+
     # Step 2: greymatter create tenant <name>
     # Adjust argv if your CLI uses a different syntax.
     gm_argv = ["greymatter", "create", "project", req.tenant_name]

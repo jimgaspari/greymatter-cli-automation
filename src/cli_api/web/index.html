@@ -1,3 +1,4 @@
+<!-- src/cli_api/web/index.html (updated with git author identity fields) -->
 <!doctype html>
 <html lang="en">
 
@@ -11,7 +12,7 @@
 <body>
     <header>
         <h1>Greymatter Bootstrap Demo</h1>
-        <p>Static UI for testing. Real usage should be via the API.</p>
+        <p>Static UI for testing/demo. Primary usage should be via the API.</p>
     </header>
 
     <section class="card">
@@ -42,13 +43,56 @@
 
         <div class="row">
             <label>
-                Branch
-                <input id="branch" type="text" value="main" />
+                Depth
+                <input id="depth" type="number" value="1" min="0" />
             </label>
 
             <label>
-                Depth
-                <input id="depth" type="number" value="1" min="0" />
+                Workspace name (optional)
+                <input id="workspaceName" type="text" placeholder="core-demo-001 (leave blank to auto-generate)" />
+            </label>
+        </div>
+
+        <h3>Branch behavior</h3>
+        <div class="row">
+            <label>
+                Base branch (must exist)
+                <input id="baseBranch" type="text" value="main" />
+            </label>
+
+            <label>
+                Target branch (optional)
+                <input id="targetBranch" type="text" placeholder="test1" />
+            </label>
+        </div>
+
+        <div class="row">
+            <label class="checkbox">
+                <input id="createBranchIfMissing" type="checkbox" checked />
+                Create branch if missing
+            </label>
+
+            <label class="checkbox">
+                <input id="pushBranchToRemote" type="checkbox" />
+                Push branch to remote (create remote branch)
+            </label>
+
+            <label class="checkbox">
+                <input id="pushChanges" type="checkbox" />
+                Push changes (commit + push after greymatter)
+            </label>
+        </div>
+
+        <h3>Git author identity (for commits)</h3>
+        <div class="row">
+            <label>
+                Author name
+                <input id="gitAuthorName" type="text" value="Greymatter Automation" />
+            </label>
+
+            <label>
+                Author email
+                <input id="gitAuthorEmail" type="email" value="greymatter-bot@pogotech.net" />
             </label>
         </div>
 

@@ -1,3 +1,4 @@
+// src/cli_api/web/app.js (updated to include git author identity fields)
 function $(id) { return document.getElementById(id); }
 
 function setResult(obj) {
@@ -16,11 +17,14 @@ function buildCloneSpec() {
     if (!repoUrl) throw new Error("Repo URL is required");
 
     if (type === "ssh") {
+        const key = $("sshKeyB64").value.trim();
+        if (!key) throw new Error("SSH private key (base64) is required for SSH clone");
+
         return {
             type: "ssh",
             repo_url: repoUrl,
-            ssh_private_key_b64: $("sshKeyB64").value.trim(),
-            known_hosts: $("knownHosts").value,
+            ssh_private_key_b64: key,
+            known_hosts: $("knownHosts").value || null,
             strict_host_key_checking: $("strictHostKeyChecking").checked
         };
     }
@@ -31,6 +35,24 @@ function buildCloneSpec() {
         username: $("httpsUsername").value.trim() || null,
         token: $("httpsToken").value.trim() || null,
         password: $("httpsPassword").value.trim() || null
+    };
+}
+
+function buildGitBehavior() {
+    const base = $("baseBranch").value.trim() || "main";
+    const target = $("targetBranch").value.trim() || null;
+
+    const authorName = $("gitAuthorName").value.trim() || null;
+    const authorEmail = $("gitAuthorEmail").value.trim() || null;
+
+    return {
+        base_branch: base,
+        target_branch: target,
+        create_branch_if_missing: $("createBranchIfMissing").checked,
+        push_branch_to_remote: $("pushBranchToRemote").checked,
+        push_changes: $("pushChanges").checked,
+        author_name: authorName,
+        author_email: authorEmail
     };
 }
 
@@ -95,12 +117,16 @@ toggleCloneFields();
 $("runCore").addEventListener("click", async () => {
     try {
         setResult("Running bootstrap-core...");
+        const workspace = $("workspaceName").value.trim() || null;
+
         const body = {
             clone: buildCloneSpec(),
-            branch: $("branch").value.trim() || "main",
             depth: Number($("depth").value || 1),
+            workspace_name: workspace,
+            git: buildGitBehavior(),
             create_platform: buildCreatePlatformOptions()
         };
+
         const result = await postJson("/api/workflows/bootstrap-core", body);
         setResult(result);
     } catch (e) {
@@ -114,12 +140,16 @@ $("runTenant").addEventListener("click", async () => {
         if (!tenantName) throw new Error("Tenant name is required");
 
         setResult("Running bootstrap-tenant...");
+        const workspace = $("workspaceName").value.trim() || null;
+
         const body = {
             clone: buildCloneSpec(),
-            branch: $("branch").value.trim() || "main",
             depth: Number($("depth").value || 1),
+            workspace_name: workspace,
+            git: buildGitBehavior(),
             tenant_name: tenantName
         };
+
         const result = await postJson("/api/workflows/bootstrap-tenant", body);
         setResult(result);
     } catch (e) {

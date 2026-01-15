@@ -3,7 +3,7 @@ from typing import Optional
 
 from ..config import settings
 from ..schemas import BootstrapCoreReq, BootstrapTenantReq
-from ..services.workflows import bootstrap_core, bootstrap_tenant  # reuse existing handlers
+from ..services.workflows import bootstrap_core, bootstrap_tenant
 
 router = APIRouter()
 

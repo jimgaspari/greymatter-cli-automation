@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Literal, Union, List
+from typing import Optional, Literal, Union, List, Dict
+from dataclasses import dataclass
 
+# Git Schemas
 class CloneViaSSH(BaseModel):
     type: Literal["ssh"] = "ssh"
     repo_url: str = Field(description="git@host:owner/repo.git")
@@ -17,7 +19,23 @@ class CloneViaHTTPS(BaseModel):
     password: Optional[str] = Field(default=None, description="Basic auth password")
     token: Optional[str] = Field(default=None, description="Personal access token")
 
+class GitBehavior(BaseModel):
+    base_branch: str = "main"                 # branch we can safely clone
+    target_branch: Optional[str] = None       # branch we want to work on (e.g. "test1")
+    create_branch_if_missing: bool = True     # create locally if not found remotely
+    push_branch_to_remote: bool = False       # create remote branch if it doesn't exist
+    push_changes: bool = False                # push commits after greymatter runs
+
 CloneSpec = Union[CloneViaSSH, CloneViaHTTPS]
+
+@dataclass
+class SshAuth:
+    env: Dict[str, str]
+    key_path: str
+    known_hosts_path: Optional[str]
+
+
+# Greymatter Schemas
 
 SecurityType = Literal["plaintext", "spire", "pki"]
 
@@ -57,8 +75,9 @@ class BootstrapCoreReq(WorkflowBaseReq):
     # Optional: allow caller to set a stable name; otherwise we generate
     workspace_name: Optional[str] = None
     create_platform: CreatePlatformOptions = Field(default_factory=CreatePlatformOptions)
+    git: GitBehavior = Field(default_factory=GitBehavior)
 
 class BootstrapTenantReq(WorkflowBaseReq):
     workspace_name: Optional[str] = None
     tenant_name: str = Field(min_length=1, description="Tenant identifier/name")
-    # Add more tenant params as needed later
+    git: GitBehavior = Field(default_factory=GitBehavior)
