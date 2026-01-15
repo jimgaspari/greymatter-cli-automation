@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cli-api"
+version = "0.0.1"
+description = "REST API to run git/greymatter/kubectl commands in a container with guardrails."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "pydantic>=2.6"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.26", "ruff>=0.1.0"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Convenience: "python -m cli_api" support
+[project.scripts]
+cli-runner-api = "cli_api.app:main"
