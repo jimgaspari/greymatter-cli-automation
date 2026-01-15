@@ -47,3 +47,18 @@ class CreatePlatformOptions(BaseModel):
     # Spire Options
     no_managed_spire: bool = Field(default=False, description="Do not deploy/maintain Spire")
     spire_namespace: Optional[str] = Field(default=None, description='Spire namespace (default "spire")')
+
+class WorkflowBaseReq(BaseModel):
+    clone: CloneSpec
+    branch: Optional[str] = "main"
+    depth: int = 1
+
+class BootstrapCoreReq(WorkflowBaseReq):
+    # Optional: allow caller to set a stable name; otherwise we generate
+    workspace_name: Optional[str] = None
+    create_platform: CreatePlatformOptions = Field(default_factory=CreatePlatformOptions)
+
+class BootstrapTenantReq(WorkflowBaseReq):
+    workspace_name: Optional[str] = None
+    tenant_name: str = Field(min_length=1, description="Tenant identifier/name")
+    # Add more tenant params as needed later

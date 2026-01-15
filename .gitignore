@@ -1,1 +1,4 @@
 .venv/
+greymatter
+key.b64
+known_hosts

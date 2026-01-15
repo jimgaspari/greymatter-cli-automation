@@ -1,21 +1,28 @@
 from fastapi import FastAPI
-from cli_api.routes import kubectl, workflows
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+
+from .api.routes import router as api_router
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="CLI Runner API", version="0.1.0")
+    app = FastAPI(title="Greymatter Bootstrap", version="0.1.0")
+
+    # API lives under /api
+    app.include_router(api_router, prefix="/api")
+
+    # Static UI
+    web_dir = Path(__file__).parent / "web"
+    app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
+
+    @app.get("/")
+    def index():
+        return FileResponse(str(web_dir / "index.html"))
 
     @app.get("/health")
     def health():
         return {"ok": True}
 
-    app.include_router(kubectl.router)
-    # app.include_router(greymatter.router)
-    app.include_router(workflows.router)  
     return app
 
 app = create_app()
-
-def main():
-    # Lets you run: cli-runner-api
-    import uvicorn
-    uvicorn.run("cli_runner_api.app:app", host="0.0.0.0", port=8080, reload=True)

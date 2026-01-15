@@ -7,7 +7,7 @@ from ..config import settings
 from ..git_ops import git_clone_with_ephemeral_key, git_clone_https
 from ..runner import run_cmd
 from ..workflow_utils import make_run_id, ensure_workspace
-from ..schemas import CloneSpec, CreatePlatformOptions
+from ..schemas import CloneSpec, CreatePlatformOptions, BootstrapCoreReq, BootstrapTenantReq
 from ..cli_options import build_gm_create_platform_argv
 from ..git_cmd import git_has_changes, git_commit_and_push
 
@@ -18,21 +18,6 @@ def require_token(x_api_token: Optional[str]):
         return  # dev only
     if x_api_token != settings.api_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
-
-class WorkflowBaseReq(BaseModel):
-    clone: CloneSpec
-    branch: Optional[str] = "main"
-    depth: int = 1
-
-class BootstrapCoreReq(WorkflowBaseReq):
-    # Optional: allow caller to set a stable name; otherwise we generate
-    workspace_name: Optional[str] = None
-    create_platform: CreatePlatformOptions = Field(default_factory=CreatePlatformOptions)
-
-class BootstrapTenantReq(WorkflowBaseReq):
-    workspace_name: Optional[str] = None
-    tenant_name: str = Field(min_length=1, description="Tenant identifier/name")
-    # Add more tenant params as needed later
 
 def fail(step: str, result: Dict[str, Any]):
     raise HTTPException(status_code=500, detail={"step": step, **result})
