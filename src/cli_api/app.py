@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from cli_api.routes import git, kubectl, greymatter
+from cli_api.routes import kubectl, workflows
 
 def create_app() -> FastAPI:
     app = FastAPI(title="CLI Runner API", version="0.1.0")
@@ -8,9 +8,9 @@ def create_app() -> FastAPI:
     def health():
         return {"ok": True}
 
-    app.include_router(git.router)
     app.include_router(kubectl.router)
-    app.include_router(greymatter.router)
+    # app.include_router(greymatter.router)
+    app.include_router(workflows.router)  
     return app
 
 app = create_app()

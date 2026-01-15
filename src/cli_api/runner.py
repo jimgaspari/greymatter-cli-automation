@@ -3,10 +3,12 @@ import subprocess
 from typing import Dict, List, Optional
 from .config import settings
 
-def run_cmd(argv: List[str], timeout_s: int = 60, env: Optional[Dict[str, str]] = None) -> Dict:
-    """
-    Run a command WITHOUT shell=True. Captures stdout/stderr and returns structured result.
-    """
+def run_cmd(
+    argv: List[str],
+    timeout_s: int = 60,
+    env: Optional[Dict[str, str]] = None,
+    cwd: Optional[str] = None,
+) -> Dict:
     try:
         p = subprocess.run(
             argv,
@@ -14,7 +16,7 @@ def run_cmd(argv: List[str], timeout_s: int = 60, env: Optional[Dict[str, str]] 
             text=True,
             timeout=timeout_s,
             env=env,
-            cwd=settings.workdir,
+            cwd=cwd or settings.workdir,
         )
         return {
             "argv": argv,
