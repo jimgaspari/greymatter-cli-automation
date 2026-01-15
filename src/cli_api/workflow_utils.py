@@ -1,6 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass
+# from dataclasses import dataclass
 from datetime import datetime, timezone
+from fastapi import HTTPException
 import os
 import re
 from pathlib import Path
@@ -21,3 +22,15 @@ def ensure_workspace(workdir: str, workspace_name: str) -> str:
         raise ValueError("workspace escapes WORKDIR")
     os.makedirs(ws, exist_ok=False)  # fail if exists; avoids accidental overwrite
     return str(ws)
+
+def fail(step: str, result: dict):
+    raise HTTPException(
+        status_code=500,
+        detail={
+            "step": step,
+            "exit_code": result.get("exit_code"),
+            "stdout": result.get("stdout"),
+            "stderr": result.get("stderr"),
+            "argv": result.get("argv"),
+        },
+    )

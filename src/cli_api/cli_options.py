@@ -50,3 +50,6 @@ def build_gm_create_platform_argv(opts: CreatePlatformOptions) -> list[str]:
         argv += ["--spire-namespace", opts.spire_namespace]
 
     return argv
+
+def build_gm_create_operator_argv() -> list[str]:
+    return ["greymatter", "create", "operator"]

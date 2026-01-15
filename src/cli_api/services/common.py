@@ -1,0 +1,113 @@
+# src/cli_api/services/common.py
+from __future__ import annotations
+
+from typing import Dict, Any, Optional, Tuple
+from fastapi import HTTPException
+from pathlib import Path
+
+from ..config import settings
+from ..workflow_utils import make_run_id, ensure_workspace
+from ..git_cmd import (
+    prepare_ssh_auth,
+    clone_repo,
+    ensure_branch,
+    ensure_git_identity,
+    git_has_changes,
+    git_commit_and_push,
+    git_clone_https,  # assuming you have this; if not, see note below
+)
+
+def require_token(x_api_token: Optional[str]):
+    if not settings.api_token:
+        return
+    if x_api_token != settings.api_token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+def fail(step: str, result: Dict[str, Any]):
+    raise HTTPException(status_code=500, detail={"step": step, **result})
+
+def create_workspace(prefix: str, workspace_name: Optional[str]) -> tuple[str, str]:
+    run_id = workspace_name or make_run_id(prefix)
+    try:
+        workspace_path = ensure_workspace(settings.workdir, run_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileExistsError:
+        raise HTTPException(status_code=409, detail="workspace already exists; choose a different workspace_name")
+    return run_id, workspace_path
+
+def build_git_env(req, workspace_path: str) -> dict:
+    if req.clone.type == "ssh":
+        ssh_auth = prepare_ssh_auth(
+            workspace_path=workspace_path,
+            ssh_private_key_b64=req.clone.ssh_private_key_b64,
+            known_hosts=req.clone.known_hosts,
+            strict_host_key_checking=req.clone.strict_host_key_checking,
+        )
+        return ssh_auth.env
+
+    # HTTPS
+    return git_clone_https(req.clone)
+
+def do_clone(req, run_id: str, git_env: dict, subdir: str = "repo") -> tuple[str, Dict[str, Any]]:
+    dest_dir = f"{run_id}/{subdir}"
+    dest_path, clone_result = clone_repo(
+        clone=req.clone,
+        dest_dir=dest_dir,
+        branch=req.git.base_branch,
+        depth=req.depth,
+        env=git_env,
+    )
+    step = {"name": "git_clone", **clone_result, "dest_path": dest_path}
+    return dest_path, step
+
+def do_branch(req, dest_path: str, git_env: dict) -> Optional[Dict[str, Any]]:
+    if not getattr(req.git, "target_branch", None):
+        return None
+
+    br = ensure_branch(
+        repo_path=dest_path,
+        git_env=git_env,
+        target_branch=req.git.target_branch,
+        push_to_remote=req.git.push_branch_to_remote,
+    )
+    return {"name": "git_ensure_branch", **br}
+
+def do_identity(req, dest_path: str, git_env: dict) -> Dict[str, Any]:
+    # allow UI overrides; fallback to defaults
+    name = getattr(req.git, "author_name", None) or "Greymatter Automation"
+    email = getattr(req.git, "author_email", None) or "greymatter-bot@greymatter.io"
+
+    git_id = ensure_git_identity(
+        repo_path=dest_path,
+        env=git_env,
+        name=name,
+        email=email,
+    )
+    return {"name": "git_identity", **git_id}
+
+def do_commit_push(req, dest_path: str, git_env: dict, message: str) -> Dict[str, Any]:
+    # Only push if requested
+    if not req.git.push_changes:
+        return {"name": "git_commit_push", "skipped": True, "reason": "push_changes=false"}
+
+    if not git_has_changes(dest_path):
+        return {"name": "git_commit_push", "skipped": True, "reason": "no changes detected"}
+
+    res = git_commit_and_push(
+        repo_path=dest_path,
+        message=message,
+        env=git_env,
+    )
+    return {"name": "git_commit_push", **res}
+
+def ensure_file_exists(path: Path, step_name: str):
+    if not path.exists():
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "step": step_name,
+                "error": f"Expected file was not created: {path.name}",
+                "expected_path": str(path),
+            },
+        )
