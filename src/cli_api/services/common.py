@@ -7,14 +7,14 @@ from pathlib import Path
 
 from ..config import settings
 from ..workflow_utils import make_run_id, ensure_workspace
-from ..git_cmd import (
+from ..git.git_cmd_shm import (
     prepare_ssh_auth,
+    prepare_https_auth,
     clone_repo,
     ensure_branch,
     ensure_git_identity,
     git_has_changes,
-    git_commit_and_push,
-    git_clone_https,  # assuming you have this; if not, see note below
+    git_commit_and_push
 )
 
 def require_token(x_api_token: Optional[str]):
@@ -38,16 +38,15 @@ def create_workspace(prefix: str, workspace_name: Optional[str]) -> tuple[str, s
 
 def build_git_env(req, workspace_path: str) -> dict:
     if req.clone.type == "ssh":
-        ssh_auth = prepare_ssh_auth(
-            workspace_path=workspace_path,
-            ssh_private_key_b64=req.clone.ssh_private_key_b64,
-            known_hosts=req.clone.known_hosts,
-            strict_host_key_checking=req.clone.strict_host_key_checking,
-        )
+        ssh_auth = prepare_ssh_auth(...)
+
         return ssh_auth.env
 
-    # HTTPS
-    return git_clone_https(req.clone)
+    return prepare_https_auth(
+        username=req.clone.username,
+        password=req.clone.password,
+        token=req.clone.token,
+    )
 
 def do_clone(req, run_id: str, git_env: dict, subdir: str = "repo") -> tuple[str, Dict[str, Any]]:
     dest_dir = f"{run_id}/{subdir}"

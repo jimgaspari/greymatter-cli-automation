@@ -81,3 +81,21 @@ class BootstrapTenantReq(WorkflowBaseReq):
     workspace_name: Optional[str] = None
     tenant_name: str = Field(min_length=1, description="Tenant identifier/name")
     git: GitBehavior = Field(default_factory=GitBehavior)
+
+# Kubectl Schemas
+# schemas.py
+from typing import Optional
+
+class ImagePullSecret(BaseModel):
+    docker_server: str = "oci.download.greymatter.io"
+    docker_username: str
+    docker_password: str
+    secret_name: str = "greymatter-image-pull"
+
+class RepoSecret(BaseModel):
+    secret_name: str = "greymatter-core-repo"
+
+class KubernetesSecrets(BaseModel):
+    namespace: str
+    image_pull: ImagePullSecret
+    create_repo_secret: bool = True

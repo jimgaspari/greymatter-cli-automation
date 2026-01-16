@@ -1,4 +1,4 @@
-<!-- src/cli_api/web/index.html (updated with git author identity fields) -->
+<!-- src/cli_api/web/index.html (updated: adds Kubernetes secret inputs) -->
 <!doctype html>
 <html lang="en">
 
@@ -92,7 +92,7 @@
 
             <label>
                 Author email
-                <input id="gitAuthorEmail" type="email" value="greymatter-bot@pogotech.net" />
+                <input id="gitAuthorEmail" type="email" value="greymatter-bot@greymatter.io" />
             </label>
         </div>
 
@@ -131,6 +131,67 @@
                 <input id="httpsPassword" type="password" placeholder="basic auth password" />
             </label>
         </div>
+    </section>
+
+    <section class="card">
+        <h2>Kubernetes Secrets</h2>
+        <p>These will run via <code>kubectl</code> in the workflow.</p>
+
+        <div class="row">
+            <label>
+                Namespace
+                <input id="k8sNamespace" type="text" placeholder="greymatter" />
+            </label>
+
+            <label class="checkbox">
+                <input id="createRepoSecret" type="checkbox" checked />
+                Create greymatter-core-repo secret (SSH only)
+            </label>
+        </div>
+
+        <h3>Image Pull Secret</h3>
+        <div class="row">
+            <label>
+                Docker server
+                <input id="dockerServer" type="text" value="oci.download.greymatter.io" />
+            </label>
+
+            <label>
+                Secret name
+                <input id="imagePullSecretName" type="text" value="greymatter-image-pull" />
+            </label>
+        </div>
+
+        <div class="row">
+            <label>
+                Docker username
+                <input id="dockerUsername" type="text" placeholder="DOCKER_USERNAME" />
+            </label>
+
+            <label>
+                Docker password
+                <input id="dockerPassword" type="password" placeholder="DOCKER_PASSWORD" />
+            </label>
+        </div>
+
+        <h3>Repo Secret</h3>
+        <div class="row">
+            <label>
+                Repo secret name
+                <input id="repoSecretName" type="text" value="greymatter-core-repo" />
+            </label>
+
+            <label>
+                Repo branch for secret (defaults to target/base)
+                <input id="repoSecretBranch" type="text" placeholder="(leave blank)" />
+            </label>
+        </div>
+
+        <p class="hint">
+            Repo secret uses your Clone inputs:
+            <code>repo_url</code>, <code>known_hosts</code>, and <code>ssh_private_key</code>.
+            If you select HTTPS clone, repo secret creation is skipped.
+        </p>
     </section>
 
     <section class="card">

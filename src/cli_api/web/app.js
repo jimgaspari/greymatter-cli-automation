@@ -1,4 +1,4 @@
-// src/cli_api/web/app.js (updated to include git author identity fields)
+// src/cli_api/web/app.js (updated: adds kubernetes secret inputs)
 function $(id) { return document.getElementById(id); }
 
 function setResult(obj) {
@@ -53,6 +53,35 @@ function buildGitBehavior() {
         push_changes: $("pushChanges").checked,
         author_name: authorName,
         author_email: authorEmail
+    };
+}
+
+function buildKubernetesSecrets() {
+    const ns = $("k8sNamespace").value.trim();
+    if (!ns) return null; // allow skipping if not set
+
+    const dockerUsername = $("dockerUsername").value.trim();
+    const dockerPassword = $("dockerPassword").value;
+
+    if (!dockerUsername || !dockerPassword) {
+        throw new Error("Kubernetes: Docker username and password are required when namespace is set");
+    }
+
+    const repoBranchOverride = $("repoSecretBranch").value.trim() || null;
+
+    return {
+        namespace: ns,
+        image_pull: {
+            docker_server: $("dockerServer").value.trim() || "oci.download.greymatter.io",
+            docker_username: dockerUsername,
+            docker_password: dockerPassword,
+            secret_name: $("imagePullSecretName").value.trim() || "greymatter-image-pull"
+        },
+        create_repo_secret: $("createRepoSecret").checked,
+        repo_secret: {
+            secret_name: $("repoSecretName").value.trim() || "greymatter-core-repo",
+            branch: repoBranchOverride
+        }
     };
 }
 
@@ -127,6 +156,9 @@ $("runCore").addEventListener("click", async () => {
             create_platform: buildCreatePlatformOptions()
         };
 
+        const k8s = buildKubernetesSecrets();
+        if (k8s) body.kubernetes = k8s;
+
         const result = await postJson("/api/workflows/bootstrap-core", body);
         setResult(result);
     } catch (e) {
@@ -149,6 +181,9 @@ $("runTenant").addEventListener("click", async () => {
             git: buildGitBehavior(),
             tenant_name: tenantName
         };
+
+        const k8s = buildKubernetesSecrets();
+        if (k8s) body.kubernetes = k8s;
 
         const result = await postJson("/api/workflows/bootstrap-tenant", body);
         setResult(result);

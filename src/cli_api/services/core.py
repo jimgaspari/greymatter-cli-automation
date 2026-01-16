@@ -1,12 +1,11 @@
 # src/cli_api/services/core.py
 from __future__ import annotations
-
+import base64
 from typing import Dict, Any
 from pathlib import Path
 
 from ..runner import run_cmd
-from ..cli_options import build_gm_create_platform_argv, build_gm_create_operator_argv
-
+from ..greymatter.core_argv import build_gm_create_platform_argv, build_gm_create_operator_argv
 from .common import (
     create_workspace,
     build_git_env,
@@ -16,6 +15,11 @@ from .common import (
     do_commit_push,
     ensure_file_exists,
     fail,
+)
+from ..kubectl.secrets import (
+    create_namespace,
+    create_image_pull_secret,
+    create_repo_secret,
 )
 
 def bootstrap_core_impl(req) -> Dict[str, Any]:
@@ -63,6 +67,42 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     # Verify .greymatter file
     gm_file = Path(dest_path) / ".greymatter"
     ensure_file_exists(gm_file, step_name="post_check")
+
+    k8s = req.kubernetes
+    ns = k8s.namespace
+
+    # Step: create namespace
+    ns_res = create_namespace(ns)
+    response["steps"].append({"name": "kubectl_create_namespace", **ns_res})
+    if ns_res["exit_code"] != 0:
+        fail("kubectl create namespace", ns_res)
+
+    # Step: image pull secret
+    img = k8s.image_pull
+    img_res = create_image_pull_secret(
+        namespace=ns,
+        secret_name=img.secret_name,
+        docker_server=img.docker_server,
+        docker_username=img.docker_username,
+        docker_password=img.docker_password,
+    )
+    response["steps"].append({"name": "kubectl_image_pull_secret", **img_res})
+    if img_res["exit_code"] != 0:
+        fail("kubectl image pull secret", img_res)
+
+    # Step: repo secret (SSH only for now)
+    if k8s.create_repo_secret and req.clone.type == "ssh":
+        repo_res = create_repo_secret(
+            namespace=ns,
+            secret_name=k8s.image_pull.secret_name.replace("image-pull", "core-repo"),
+            repo_url=req.clone.repo_url,
+            branch=req.git.target_branch or req.git.base_branch,
+            known_hosts=req.clone.known_hosts,
+            ssh_key=base64.b64decode(req.clone.ssh_private_key_b64).decode(),
+        )
+        response["steps"].append({"name": "kubectl_repo_secret", **repo_res})
+        if repo_res["exit_code"] != 0:
+            fail("kubectl repo secret", repo_res)
 
     # Commit + push (optional)
     commit_step = do_commit_push(req, dest_path=dest_path, git_env=git_env, message="chore: bootstrap greymatter core")
