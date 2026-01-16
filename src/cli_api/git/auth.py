@@ -1,31 +1,28 @@
-
 from __future__ import annotations
 import os, tempfile
-import base64
 from typing import Optional, Dict
 from pathlib import Path
 from ..schemas import  SshAuth
 
 def prepare_ssh_auth(
+    *,
     workspace_path: str,
-    ssh_private_key_b64: str,
+    ssh_private_key: str,
     known_hosts: Optional[str],
     strict_host_key_checking: bool,
-) -> SshAuth:
-    ws = Path(workspace_path)
-    ssh_dir = ws / ".ssh"
+):
+    ssh_dir = Path(workspace_path) / ".ssh"
     ssh_dir.mkdir(parents=True, exist_ok=True)
 
     key_path = ssh_dir / "id_key"
-    key_text = base64.b64decode(ssh_private_key_b64).decode("utf-8")
-    key_path.write_text(key_text, encoding="utf-8")
-    os.chmod(key_path, 0o600)
+    key_path.write_text(ssh_private_key, encoding="utf-8")
+    key_path.chmod(0o600)
 
     known_hosts_path = None
     if known_hosts:
         known_hosts_path = ssh_dir / "known_hosts"
         known_hosts_path.write_text(known_hosts, encoding="utf-8")
-        os.chmod(known_hosts_path, 0o600)
+        known_hosts_path.chmod(0o600)
 
     ssh_opts = [
         "-i", str(key_path),

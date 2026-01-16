@@ -6,7 +6,9 @@ from dataclasses import dataclass
 class CloneViaSSH(BaseModel):
     type: Literal["ssh"] = "ssh"
     repo_url: str = Field(description="git@host:owner/repo.git")
-    ssh_private_key_b64: str
+    ssh_private_key: str = Field(
+        description="Raw SSH private key (PEM format)"
+    )
     known_hosts: Optional[str] = None
     strict_host_key_checking: bool = True
 

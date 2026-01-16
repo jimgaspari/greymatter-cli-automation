@@ -17,13 +17,13 @@ function buildCloneSpec() {
     if (!repoUrl) throw new Error("Repo URL is required");
 
     if (type === "ssh") {
-        const key = $("sshKeyB64").value.trim();
-        if (!key) throw new Error("SSH private key (base64) is required for SSH clone");
+        const key = $("sshKey").value.trim();
+        if (!key) throw new Error("SSH private key is required for SSH clone");
 
         return {
             type: "ssh",
             repo_url: repoUrl,
-            ssh_private_key_b64: key,
+            ssh_private_key: key,
             known_hosts: $("knownHosts").value || null,
             strict_host_key_checking: $("strictHostKeyChecking").checked
         };

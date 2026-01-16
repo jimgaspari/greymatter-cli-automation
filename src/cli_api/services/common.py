@@ -1,6 +1,5 @@
 # src/cli_api/services/common.py
 from __future__ import annotations
-
 from typing import Dict, Any, Optional, Tuple
 from fastapi import HTTPException
 from pathlib import Path
@@ -38,15 +37,21 @@ def create_workspace(prefix: str, workspace_name: Optional[str]) -> tuple[str, s
 
 def build_git_env(req, workspace_path: str) -> dict:
     if req.clone.type == "ssh":
-        ssh_auth = prepare_ssh_auth(...)
-
+        ssh_auth = prepare_ssh_auth(
+            workspace_path=workspace_path,
+            ssh_private_key=req.clone.ssh_private_key,
+            known_hosts=req.clone.known_hosts,
+            strict_host_key_checking=req.clone.strict_host_key_checking,
+        )
         return ssh_auth.env
 
+    # HTTPS (whatever you renamed this to)
     return prepare_https_auth(
         username=req.clone.username,
         password=req.clone.password,
         token=req.clone.token,
     )
+
 
 def do_clone(req, run_id: str, git_env: dict, subdir: str = "repo") -> tuple[str, Dict[str, Any]]:
     dest_dir = f"{run_id}/{subdir}"
