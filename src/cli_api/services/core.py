@@ -16,7 +16,7 @@ from .common import (
     ensure_file_exists,
     fail,
 )
-from ..kubectl.secrets import (
+from ..kubernetes.secrets import (
     create_namespace,
     create_image_pull_secret,
     create_repo_secret,
@@ -36,32 +36,32 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
 
     dest_path, clone_step = do_clone(req, run_id=run_id, git_env=git_env, subdir="repo")
     response["steps"].append(clone_step)
-    if clone_step["exit_code"] != 0:
+    if clone_step["returncode"] != 0:
         fail("git clone", clone_step)
 
     br_step = do_branch(req, dest_path=dest_path, git_env=git_env)
     if br_step:
         response["steps"].append(br_step)
-        if br_step["exit_code"] != 0:
+        if br_step["returncode"] != 0:
             fail("ensure branch", br_step)
 
     id_step = do_identity(req, dest_path=dest_path, git_env=git_env)
     response["steps"].append(id_step)
-    if id_step["exit_code"] != 0:
+    if id_step["returncode"] != 0:
         fail("git identity", id_step)
 
     # greymatter create platform
     gm_platform_argv = build_gm_create_platform_argv(req.create_platform)
     gm_platform = run_cmd(gm_platform_argv, timeout_s=600, cwd=dest_path)
     response["steps"].append({"name": "greymatter_create_platform", **gm_platform})
-    if gm_platform["exit_code"] != 0:
+    if gm_platform["returncode"] != 0:
         fail("greymatter create platform", gm_platform)
 
     # greymatter create operator (same working dir)
     gm_operator_argv = build_gm_create_operator_argv()
     gm_operator = run_cmd(gm_operator_argv, timeout_s=600, cwd=dest_path)
     response["steps"].append({"name": "greymatter_create_operator", **gm_operator})
-    if gm_operator["exit_code"] != 0:
+    if gm_operator["returncode"] != 0:
         fail("greymatter create operator", gm_operator)
 
     # Verify .greymatter file
@@ -74,7 +74,7 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     # Step: create namespace
     ns_res = create_namespace(ns)
     response["steps"].append({"name": "kubectl_create_namespace", **ns_res})
-    if ns_res["exit_code"] != 0:
+    if ns_res["returncode"] != 0:
         fail("kubectl create namespace", ns_res)
 
     # Step: image pull secret
@@ -87,7 +87,7 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
         docker_password=img.docker_password,
     )
     response["steps"].append({"name": "kubectl_image_pull_secret", **img_res})
-    if img_res["exit_code"] != 0:
+    if img_res["returncode"] != 0:
         fail("kubectl image pull secret", img_res)
 
     # Step: repo secret (SSH only for now)
@@ -101,13 +101,13 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
             ssh_key=base64.b64decode(req.clone.ssh_private_key_b64).decode(),
         )
         response["steps"].append({"name": "kubectl_repo_secret", **repo_res})
-        if repo_res["exit_code"] != 0:
+        if repo_res["returncode"] != 0:
             fail("kubectl repo secret", repo_res)
 
     # Commit + push (optional)
     commit_step = do_commit_push(req, dest_path=dest_path, git_env=git_env, message="chore: bootstrap greymatter core")
     response["steps"].append(commit_step)
-    if commit_step.get("exit_code") not in (None, 0):
+    if commit_step.get("returncode") not in (None, 0):
         fail("git commit & push", commit_step)
 
     response["artifacts"] = {

@@ -18,8 +18,8 @@ def ensure_git_identity(
         env=env,
     )
     steps["user.name"] = name_res
-    if name_res["exit_code"] != 0:
-        return {"exit_code": name_res["exit_code"], "steps": steps}
+    if name_res["returncode"] != 0:
+        return {"returncode": name_res["returncode"], "steps": steps}
 
     email_res = run_cmd(
         ["git", "config", "user.email", email],
@@ -27,7 +27,7 @@ def ensure_git_identity(
         env=env,
     )
     steps["user.email"] = email_res
-    if email_res["exit_code"] != 0:
-        return {"exit_code": email_res["exit_code"], "steps": steps}
+    if email_res["returncode"] != 0:
+        return {"returncode": email_res["returncode"], "steps": steps}
 
-    return {"exit_code": 0, "steps": steps}
+    return {"returncode": 0, "steps": steps}

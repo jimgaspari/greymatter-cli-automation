@@ -5,17 +5,19 @@ import tempfile
 
 from ..runner import run_cmd
 
+from typing import Dict
+
 def create_namespace(namespace: str) -> Dict:
-    argv = [
-        "kubectl", "create", "namespace", namespace,
-        "--dry-run=client", "-o", "yaml"
-    ]
-    ns_yaml = run_cmd(argv)
-    if ns_yaml["exit_code"] != 0:
+    ns_yaml = run_cmd(
+        ["kubectl", "create", "namespace", namespace, "--dry-run=client", "-o", "yaml"],
+        check=False,
+    )
+    if ns_yaml.get("returncode", 1) != 0:
         return ns_yaml
 
-    apply = run_cmd(["kubectl", "apply", "-f", "-"], input=ns_yaml["stdout"])
+    apply = run_cmd(["kubectl", "apply", "-f", "-"], input=ns_yaml["stdout"], check=False)
     return apply
+
 
 def create_image_pull_secret(
     namespace: str,
@@ -33,7 +35,7 @@ def create_image_pull_secret(
         "--dry-run=client", "-o", "yaml",
     ]
     secret_yaml = run_cmd(argv)
-    if secret_yaml["exit_code"] != 0:
+    if secret_yaml["returncode"] != 0:
         return secret_yaml
 
     apply = run_cmd(["kubectl", "apply", "-f", "-"], input=secret_yaml["stdout"])
@@ -69,7 +71,7 @@ def create_repo_secret(
         ]
 
         secret_yaml = run_cmd(argv)
-        if secret_yaml["exit_code"] != 0:
+        if secret_yaml["returncode"] != 0:
             return secret_yaml
 
         apply = run_cmd(["kubectl", "apply", "-f", "-"], input=secret_yaml["stdout"])
