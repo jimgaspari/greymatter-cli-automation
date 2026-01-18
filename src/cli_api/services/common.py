@@ -72,6 +72,7 @@ def do_branch(req, dest_path: str, git_env: dict) -> Optional[Dict[str, Any]]:
     br = ensure_branch(
         repo_path=dest_path,
         git_env=git_env,
+        base_branch=req.git.base_branch,
         target_branch=req.git.target_branch,
         push_to_remote=req.git.push_branch_to_remote,
     )

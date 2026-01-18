@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Tuple, Dict, Optional, List
+import logging
 
 from ..schemas import CloneSpec
 from ..runner import run_cmd
@@ -19,6 +20,7 @@ def git_clone_https(
         raise ValueError("repo_https_url must start with https://")
 
     dest_path = safe_work_path(settings.workdir, dest_dir)
+    logging.warning("Cloning Git Repo %s", repo_https_url)
 
     argv: List[str] = ["git", "clone"]
     if depth:
@@ -40,15 +42,34 @@ def git_clone_ssh(
 ) -> tuple[str, dict]:
     dest_path = safe_work_path(settings.workdir, dest_dir)
 
-    argv = ["git", "clone"]
-    if depth:
-        argv += ["--depth", str(depth)]
-    if branch:
-        argv += ["--branch", branch]
-    argv += [repo_ssh_url, dest_path]
+    logging.warning("Cloning Git Repo %s", repo_ssh_url)
 
-    result = run_cmd(argv, timeout_s=timeout_s, env=env, cwd=settings.workdir)
-    return dest_path, result
+    # Build base clone args
+    base_argv = ["git", "clone"]
+    if depth:
+        base_argv += ["--depth", str(depth)]
+
+    # Attempt clone with branch (if provided)
+    if branch:
+        argv = base_argv + ["--branch", branch, repo_ssh_url, dest_path]
+        res = run_cmd(argv, timeout_s=timeout_s, env=env, cwd=settings.workdir, check=False)
+
+        if res.get("returncode", 1) == 0:
+            return dest_path, res
+
+        # If branch doesn't exist, fall back to default branch clone
+        stderr = (res.get("stderr") or "")
+        if "Remote branch" in stderr and "not found" in stderr:
+            logging.warning("Branch %s not found; retrying clone without --branch", branch)
+        else:
+            # Not a missing-branch error → return the failure
+            return dest_path, res
+
+    # Fallback/default clone
+    argv = base_argv + [repo_ssh_url, dest_path]
+    res2 = run_cmd(argv, timeout_s=timeout_s, env=env, cwd=settings.workdir, check=False)
+    return dest_path, res2
+
 
 def clone_repo(
     *,

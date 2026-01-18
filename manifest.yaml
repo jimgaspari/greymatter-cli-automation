@@ -179,6 +179,103 @@ roleRef:
   name: cli-api-manage-namespaces
 
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cli-api-manage-secrets-any-namespace
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch", "update", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cli-api-manage-secrets-any-namespace-binding
+subjects:
+  - kind: ServiceAccount
+    name: cli-api
+    namespace: cli-api-jobs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cli-api-manage-secrets-any-namespace
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cli-api-install-platform-operator
+rules:
+  # CRDs (cluster-scoped)
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+
+  # Cluster RBAC objects created by the operator manifest
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cli-api-install-platform-operator-binding
+subjects:
+  - kind: ServiceAccount
+    name: cli-api
+    namespace: cli-api-jobs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cli-api-install-platform-operator
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cli-api-install-platform-operator-ns
+  namespace: greymatter
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cli-api-install-platform-operator-ns-binding
+  namespace: greymatter
+subjects:
+  - kind: ServiceAccount
+    name: cli-api
+    namespace: cli-api-jobs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cli-api-install-platform-operator-ns
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cli-api-cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: cli-api
+    namespace: cli-api-jobs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
