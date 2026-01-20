@@ -4,6 +4,7 @@ from typing import Dict, Any
 from pathlib import Path
 import logging
 
+from ..cue.edit_config import update_mesh_metadata_name
 from ..runner import run_cmd
 from ..greymatter.core_argv import build_gm_create_platform_argv, build_gm_create_operator_argv
 from .common import (
@@ -61,6 +62,13 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     response["steps"].append({"name": "greymatter_create_platform", **gm_platform})
     if gm_platform["returncode"] != 0:
         return fail("greymatter create platform", gm_platform, response=response)
+
+
+    config_path = Path(dest_path) / "config.cue"
+    edit_res = update_mesh_metadata_name(config_path, req.create_platform.namespace)  # or whatever field you want
+    response["steps"].append({"name": "edit_config_cue", **edit_res})
+    if edit_res["returncode"] != 0:
+        return fail("edit config.cue", edit_res, response=response)
 
     logging.info("Greymatter Core has been Created")
 
