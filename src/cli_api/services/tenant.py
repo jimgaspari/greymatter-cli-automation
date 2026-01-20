@@ -30,18 +30,18 @@ def bootstrap_tenant_impl(req) -> Dict[str, Any]:
 
     dest_path, clone_step = do_clone(req, run_id=run_id, git_env=git_env, subdir="repo")
     response["steps"].append(clone_step)
-    if clone_step["exit_code"] != 0:
+    if clone_step["returncode"] != 0:
         fail("git clone", clone_step)
 
     br_step = do_branch(req, dest_path=dest_path, git_env=git_env)
     if br_step:
         response["steps"].append(br_step)
-        if br_step["exit_code"] != 0:
+        if br_step["returncode"] != 0:
             fail("ensure branch", br_step)
 
     id_step = do_identity(req, dest_path=dest_path, git_env=git_env)
     response["steps"].append(id_step)
-    if id_step["exit_code"] != 0:
+    if id_step["returncode"] != 0:
         fail("git identity", id_step)
 
     # TODO: replace this with the real tenant command you want.
@@ -49,12 +49,12 @@ def bootstrap_tenant_impl(req) -> Dict[str, Any]:
     gm_argv = ["greymatter", "create", "project", req.tenant_name]
     gm_result = run_cmd(gm_argv, timeout_s=600, cwd=dest_path)
     response["steps"].append({"name": "greymatter_create_project", **gm_result})
-    if gm_result["exit_code"] != 0:
+    if gm_result["returncode"] != 0:
         fail("greymatter create project", gm_result)
 
     commit_step = do_commit_push(req, dest_path=dest_path, git_env=git_env, message=f"chore: bootstrap tenant {req.tenant_name}")
     response["steps"].append(commit_step)
-    if commit_step.get("exit_code") not in (None, 0):
+    if commit_step.get("returncode") not in (None, 0):
         fail("git commit & push", commit_step)
 
     response["result"] = {"tenant_created": True, "repo_path": dest_path}

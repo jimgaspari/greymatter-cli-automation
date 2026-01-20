@@ -4,13 +4,16 @@ from typing import Dict, Optional
 from ..runner import run_cmd
 
 
-def git_has_changes(repo_path: str) -> bool:
+def git_has_changes(repo_path: str, env: Optional[dict] = None) -> bool:
+    env = env or {}
     result = run_cmd(
         ["git", "status", "--porcelain"],
         cwd=repo_path,
+        env=env,
         timeout_s=30,
+        check=False,
     )
-    return bool(result["stdout"].strip())
+    return bool((result.get("stdout") or "").strip())
 
 
 def git_commit_and_push(
@@ -19,50 +22,53 @@ def git_commit_and_push(
     env: Optional[dict] = None,
 ) -> Dict:
     env = env or {}
-
     steps: Dict = {}
 
-    add = run_cmd(["git", "add", "-A"], cwd=repo_path, env=env)
+    add = run_cmd(["git", "add", "-A"], cwd=repo_path, env=env, check=False)
     steps["add"] = add
-    if add["exit_code"] != 0:
-        return {"exit_code": add["exit_code"], "step": "git add", "steps": steps}
+    if add.get("returncode", 1) != 0:
+        return {"returncode": add["returncode"], "step": "git add", "steps": steps}
 
-    commit = run_cmd(["git", "commit", "-m", message], cwd=repo_path, env=env)
+    # Commit can legitimately be a no-op ("nothing to commit")
+    commit = run_cmd(["git", "commit", "-m", message], cwd=repo_path, env=env, check=False)
     steps["commit"] = commit
-    if commit["exit_code"] != 0:
-        return {"exit_code": commit["exit_code"], "step": "git commit", "steps": steps}
+    if commit.get("returncode", 1) != 0:
+        out = (commit.get("stdout", "") + commit.get("stderr", "")).lower()
+        if "nothing to commit" not in out:
+            return {"returncode": commit["returncode"], "step": "git commit", "steps": steps}
 
-    # Detect upstream
-    upstream = run_cmd(
-        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    # Determine current branch
+    branch = run_cmd(
+        ["git", "branch", "--show-current"],
         cwd=repo_path,
         env=env,
+        check=False,
     )
-    steps["upstream_check"] = upstream
-
-    if upstream["exit_code"] == 0:
-        # Normal push
-        push = run_cmd(["git", "push"], cwd=repo_path, env=env, timeout_s=120)
-    else:
-        # No upstream → set it
-        branch = run_cmd(
+    steps["current_branch"] = branch
+    br = (branch.get("stdout") or "").strip()
+    if branch.get("returncode", 1) != 0 or not br:
+        # Fallback if detached HEAD or weird state
+        branch2 = run_cmd(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             cwd=repo_path,
             env=env,
+            check=False,
         )
-        steps["current_branch"] = branch
-        if branch["exit_code"] != 0:
-            return {"exit_code": branch["exit_code"], "step": "detect branch", "steps": steps}
+        steps["current_branch_fallback"] = branch2
+        br = (branch2.get("stdout") or "").strip()
+        if branch2.get("returncode", 1) != 0 or not br or br == "HEAD":
+            return {"returncode": 1, "step": "detect branch", "steps": steps}
 
-        push = run_cmd(
-            ["git", "push", "-u", "origin", branch["stdout"].strip()],
-            cwd=repo_path,
-            env=env,
-            timeout_s=120,
-        )
-
+    # Push explicitly and set upstream (safe even if already set)
+    push = run_cmd(
+        ["git", "push", "-u", "origin", br],
+        cwd=repo_path,
+        env=env,
+        timeout_s=120,
+        check=False,
+    )
     steps["push"] = push
-    if push["exit_code"] != 0:
-        return {"exit_code": push["exit_code"], "step": "git push", "steps": steps}
+    if push.get("returncode", 1) != 0:
+        return {"returncode": push["returncode"], "step": "git push", "steps": steps}
 
-    return {"exit_code": 0, "steps": steps}
+    return {"returncode": 0, "steps": steps}

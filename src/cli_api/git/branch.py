@@ -1,48 +1,111 @@
 from __future__ import annotations
-from typing import Dict
+from typing import Dict, Optional
+import logging
 
 from ..runner import run_cmd
 
 
-def ensure_branch(repo_path: str, git_env: dict, target_branch: str, push_to_remote: bool) -> Dict:
-    steps: Dict = {}
+def ensure_branch(
+    *,
+    base_branch: str,
+    target_branch: str,
+    repo_path: str,
+    git_env: Optional[dict] = None,
+    push_to_remote: bool = False,
+) -> Dict:
+    """
+    Behavior:
+      - If remote branch exists: fetch it and check out from origin/<target_branch>
+      - Else if local branch exists: check out local
+      - Else: create local branch from origin/<base_branch> (or local base fallback)
+      - If push_to_remote: push -u origin <target_branch> (sets upstream)
+    """
 
-    # Make sure refs are up-to-date
-    fetch = run_cmd(["git", "fetch", "origin", "--prune"], cwd=repo_path, env=git_env, timeout_s=60)
-    steps["fetch"] = fetch
-    if fetch["exit_code"] != 0:
-        return {"exit_code": fetch["exit_code"], "step": "git fetch", "steps": steps}
+    # Keep remote refs current (safe even if branch missing)
+    run_cmd(["git", "fetch", "--prune", "origin"], cwd=repo_path, env=git_env, check=True)
 
-    # Detect if branch exists on origin
-    ls = run_cmd(["git", "ls-remote", "--heads", "origin", target_branch],
-                 cwd=repo_path, env=git_env, timeout_s=30)
-    steps["ls_remote"] = ls
-    if ls["exit_code"] != 0:
-        return {"exit_code": ls["exit_code"], "step": "git ls-remote", "steps": steps}
+    # Check remote existence on the server (not local refs)
+    remote_exists = run_cmd(
+        ["git", "ls-remote", "--exit-code", "--heads", "origin", target_branch],
+        cwd=repo_path,
+        env=git_env,
+        check=False,
+    ).get("returncode", 1) == 0
 
-    remote_exists = bool(ls["stdout"].strip())
+    # Check local existence
+    local_exists = run_cmd(
+        ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{target_branch}"],
+        cwd=repo_path,
+        env=git_env,
+        check=False,
+    ).get("returncode", 1) == 0
 
     if remote_exists:
-        # Track the remote branch
-        co = run_cmd(["git", "checkout", "-B", target_branch, f"origin/{target_branch}"],
-                     cwd=repo_path, env=git_env, timeout_s=30)
-        steps["checkout"] = co
-        if co["exit_code"] != 0:
-            return {"exit_code": co["exit_code"], "step": "git checkout remote", "steps": steps}
-        return {"exit_code": 0, "remote_exists": True, "steps": steps}
+        logging.warning("Remote branch exists: %s", target_branch)
 
-    # Remote branch doesn't exist -> create locally from current HEAD
-    co = run_cmd(["git", "checkout", "-b", target_branch],
-                 cwd=repo_path, env=git_env, timeout_s=30)
-    steps["checkout"] = co
-    if co["exit_code"] != 0:
-        return {"exit_code": co["exit_code"], "step": "git checkout -b", "steps": steps}
+        # Fetch the exact branch ref so origin/<target_branch> is guaranteed to exist locally
+        run_cmd(
+            ["git", "fetch", "origin",
+             f"+refs/heads/{target_branch}:refs/remotes/origin/{target_branch}"],
+            cwd=repo_path,
+            env=git_env,
+            check=True,
+        )
+
+        co = run_cmd(
+            ["git", "checkout", "-B", target_branch, f"origin/{target_branch}"],
+            cwd=repo_path,
+            env=git_env,
+            check=True,
+        )
+
+        # Upstream should exist in this case; set it (idempotent)
+        run_cmd(
+            ["git", "branch", "--set-upstream-to", f"origin/{target_branch}", target_branch],
+            cwd=repo_path,
+            env=git_env,
+            check=False,
+        )
+        return co
+
+    if local_exists:
+        logging.warning("Remote branch missing; using local branch: %s", target_branch)
+        return run_cmd(
+            ["git", "checkout", target_branch],
+            cwd=repo_path,
+            env=git_env,
+            check=True,
+        )
+
+    # Neither remote nor local exists: create from base
+    logging.warning("Branch %s does not exist; creating from base %s", target_branch, base_branch)
+
+    run_cmd(["git", "fetch", "origin", base_branch], cwd=repo_path, env=git_env, check=False)
+
+    base_ref = f"origin/{base_branch}"
+    base_ref_exists = run_cmd(
+        ["git", "rev-parse", "--verify", "--quiet", base_ref],
+        cwd=repo_path,
+        env=git_env,
+        check=False,
+    ).get("returncode", 1) == 0
+    if not base_ref_exists:
+        base_ref = base_branch
+
+    co = run_cmd(
+        ["git", "checkout", "-B", target_branch, base_ref],
+        cwd=repo_path,
+        env=git_env,
+        check=True,
+    )
 
     if push_to_remote:
-        push = run_cmd(["git", "push", "-u", "origin", target_branch],
-                       cwd=repo_path, env=git_env, timeout_s=120)
-        steps["push_branch"] = push
-        if push["exit_code"] != 0:
-            return {"exit_code": push["exit_code"], "step": "git push -u", "steps": steps}
+        # This creates the remote branch and sets upstream in one shot
+        run_cmd(
+            ["git", "push", "-u", "origin", target_branch],
+            cwd=repo_path,
+            env=git_env,
+            check=True,
+        )
 
-    return {"exit_code": 0, "remote_exists": False, "pushed_branch": push_to_remote, "steps": steps}
+    return co

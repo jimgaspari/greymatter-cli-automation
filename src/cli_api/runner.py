@@ -1,33 +1,59 @@
-from __future__ import annotations
 import subprocess
-from typing import Dict, List, Optional
-from .config import settings
+from typing import Any, Mapping, Optional, Sequence, Union
+
 
 def run_cmd(
-    argv: List[str],
-    timeout_s: int = 60,
-    env: Optional[Dict[str, str]] = None,
+    cmd: Sequence[str],
+    *,
+    input: Optional[Union[str, bytes]] = None,
     cwd: Optional[str] = None,
-) -> Dict:
+    env: Optional[Mapping[str, str]] = None,
+    timeout_s: Optional[float] = None,
+    check: bool = True,
+    text: bool = True,
+) -> dict[str, Any]:
+    """
+    Run a command and return {'stdout','stderr','returncode'}.
+
+    Supports:
+      - input: str|bytes passed to stdin
+      - timeout_s: seconds before timing out
+      - cwd/env/check/text similar to subprocess.run
+    """
+    # If bytes input is provided, force text=False unless caller already did.
+    if isinstance(input, (bytes, bytearray)) and text:
+        text = False
+
     try:
-        p = subprocess.run(
-            argv,
+        r = subprocess.run(
+            list(cmd),
+            input=input,
+            cwd=cwd,
+            env=dict(env) if env is not None else None,
             capture_output=True,
-            text=True,
+            text=text,
             timeout=timeout_s,
-            env=env,
-            cwd=cwd or settings.workdir,
+            check=False,  # we raise ourselves to keep stdout/stderr
         )
-        return {
-            "argv": argv,
-            "exit_code": p.returncode,
-            "stdout": p.stdout,
-            "stderr": p.stderr,
-        }
     except subprocess.TimeoutExpired as e:
-        return {
-            "argv": argv,
-            "exit_code": 124,
-            "stdout": e.stdout or "",
-            "stderr": (e.stderr or "") + "\nTimed out",
+        # Normalize timeout error into same dict shape and raise if check=True
+        out = {
+            "stdout": (e.stdout.decode() if isinstance(e.stdout, (bytes, bytearray)) else (e.stdout or "")),
+            "stderr": (e.stderr.decode() if isinstance(e.stderr, (bytes, bytearray)) else (e.stderr or "")),
+            "returncode": -1,
         }
+        if check:
+            raise
+        return out
+
+    out = {"stdout": r.stdout or "", "stderr": r.stderr or "", "returncode": r.returncode}
+
+    if check and r.returncode != 0:
+        raise subprocess.CalledProcessError(
+            r.returncode,
+            list(cmd),
+            output=out["stdout"],
+            stderr=out["stderr"],
+        )
+
+    return out
