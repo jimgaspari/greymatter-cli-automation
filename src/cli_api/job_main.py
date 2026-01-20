@@ -61,7 +61,18 @@ def main() -> int:
         return 1
 
     _print_result(result)
-    return 0 if result.get("returncode", 1) == 0 else 1
+
+    rc = result.get("returncode", None)
+
+    # If workflow forgot to provide returncode, infer from steps
+    if rc is None:
+        steps = result.get("steps")
+        if isinstance(steps, list) and steps:
+            rc = 0 if all((s.get("returncode", 1) == 0) for s in steps) else 1
+        else:
+            rc = 1  # no returncode + no steps => treat as failure
+
+    return 0 if rc == 0 else 1
 
 
 if __name__ == "__main__":

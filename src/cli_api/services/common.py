@@ -1,6 +1,6 @@
 # src/cli_api/services/common.py
 from __future__ import annotations
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 from fastapi import HTTPException
 from pathlib import Path
 
@@ -22,8 +22,38 @@ def require_token(x_api_token: Optional[str]):
     if x_api_token != settings.api_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-def fail(step: str, result: Dict[str, Any]):
-    raise HTTPException(status_code=500, detail={"step": step, **result})
+def fail(
+    step: str,
+    result: Dict[str, Any],
+    *,
+    response: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Build a structured failure response.
+
+    - Does NOT raise.
+    - Always returns a dict with returncode != 0.
+    - Can merge into an existing response object.
+    """
+
+    failure = {
+        "returncode": result.get("returncode", result.get("exit_code", 1) or 1),
+        "step": step,
+        "stdout": result.get("stdout"),
+        "stderr": result.get("stderr"),
+        "argv": result.get("argv"),
+    }
+
+    # Preserve nested step detail if present
+    if "steps" in result:
+        failure["steps"] = result["steps"]
+
+    # If caller passed a response object, merge into it
+    if response is not None:
+        response.update(failure)
+        return response
+
+    return failure
 
 def create_workspace(prefix: str, workspace_name: Optional[str]) -> tuple[str, str]:
     run_id = workspace_name or make_run_id(prefix)
