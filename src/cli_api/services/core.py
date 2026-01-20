@@ -72,8 +72,6 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
 
     logging.info("Greymatter Core has been Created")
 
-    logging.info("Greymatter Core has been Created")
-
     # greymatter create operator (same working dir)
     gm_operator_argv = build_gm_create_operator_argv()
     gm_operator = run_cmd(gm_operator_argv, timeout_s=600, cwd=dest_path, check=False)

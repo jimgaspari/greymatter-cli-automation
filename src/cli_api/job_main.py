@@ -11,6 +11,7 @@ from typing import Any, Dict
 from cli_api.schemas import BootstrapCoreReq, BootstrapTenantReq
 from cli_api.services.core import bootstrap_core_impl
 from cli_api.services.tenant import bootstrap_tenant_impl
+from cli_api.kubernetes.spire import check_spire_installed
 
 
 def _read_json_file(path: str) -> Dict[str, Any]:
@@ -44,7 +45,50 @@ def main() -> int:
 
     try:
         if workflow in ("bootstrap-core", "core"):
-            req = BootstrapCoreReq.model_validate(payload)  # pydantic v2
+            req = BootstrapCoreReq.model_validate(payload)
+            job_steps = []
+
+            def _security_is_spire(req) -> bool:
+                sec = (getattr(req.create_platform, "security", None) or "").strip().lower()
+                return sec == "spire"
+
+            def _no_managed_spire(req) -> bool:
+                return bool(getattr(req.create_platform, "no_managed_spire", False))
+
+
+            security_spire = _security_is_spire(req)
+            no_managed = _no_managed_spire(req)
+
+            if security_spire:
+                spire = check_spire_installed()
+                job_steps.append({"name": "preflight_spire_installed", **spire})
+
+                installed = bool(spire.get("installed", False))
+
+                if no_managed and not installed:
+                    result = {
+                        "returncode": 1,
+                        "workflow": workflow,
+                        "step": "preflight_spire_installed",
+                        "stderr": "no_managed_spire=true but SPIRE is not installed on this cluster",
+                        "steps": job_steps,
+                    }
+                    _print_result(result)
+                    return 1
+
+                if installed and not no_managed:
+                    result = {
+                        "returncode": 1,
+                        "workflow": workflow,
+                        "step": "preflight_spire_installed",
+                        "stderr": (
+                            "SPIRE is already installed on this cluster."
+                        ),
+                        "steps": job_steps,
+                    }
+                    _print_result(result)
+                    return 1
+
             result = bootstrap_core_impl(req)
 
         elif workflow in ("bootstrap-tenant", "tenant"):
