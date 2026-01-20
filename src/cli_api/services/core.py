@@ -64,6 +64,8 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
 
     logging.info("Greymatter Core has been Created")
 
+    logging.info("Greymatter Core has been Created")
+
     # greymatter create operator (same working dir)
     gm_operator_argv = build_gm_create_operator_argv()
     gm_operator = run_cmd(gm_operator_argv, timeout_s=600, cwd=dest_path, check=False)
@@ -123,6 +125,11 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     response["steps"].append(operator_apply)
     if operator_apply.get("returncode", 1) != 0:
         return fail("apply platform operator manifest", operator_apply, response=response)
+
+    operator_apply = apply_platform_operator_manifest(dest_path, ns, git_env=git_env)
+    response["steps"].append(operator_apply)
+    if operator_apply.get("returncode", 1) != 0:
+        fail("greymatter create operator", operator_apply)
 
     response["artifacts"] = {
         ".greymatter": {"path": str(gm_file), "size_bytes": gm_file.stat().st_size}
