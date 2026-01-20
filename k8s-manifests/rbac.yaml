@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cli-api
+  namespace: cli-api-jobs
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cli-api-job-runner
+  namespace: cli-api-jobs
+
+---
+# API permissions: only in cli-api-jobs namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cli-api-orchestrator
+  namespace: cli-api-jobs
+rules:
+  # Create and monitor Jobs that run workflows
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs/status"]
+    verbs: ["get"]
+
+  # Store input payloads as secrets (request.json)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "list", "watch", "patch", "update", "delete"]
+
+  # Allow reading pods + logs for job status/log endpoints
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cli-api-orchestrator-binding
+  namespace: cli-api-jobs
+subjects:
+  - kind: ServiceAccount
+    name: cli-api
+    namespace: cli-api-jobs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cli-api-orchestrator
+
+---
+# Runner permissions: cluster-admin for now (since operator install applies CRDs/RBAC etc.)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cli-api-job-runner-cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: cli-api-job-runner
+    namespace: cli-api-jobs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
