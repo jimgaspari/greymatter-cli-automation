@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# kubectl port-forward -n cli-api-jobs deploy/cli-api 8080:8080
-
 API_URL="http://localhost:8080/api/workflows/bootstrap-core"
 TOKEN="devtoken"
 REPO_URL="git@gitea-ssh.home.pogotech.net:jimgaspari/auto-cli-core.git"
@@ -53,6 +51,7 @@ jq -n \
     },
     create_platform: {
       display_name: "Jims Mesh",
+      mesh_name: "spire-mesh",
       namespace: $ns,
       security: "spire",
       image_repository: "staging-oci.download.greymatter.io"
