@@ -3,7 +3,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from .api.routes import router as api_router
+from cli_api.api.router import api_router
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Greymatter Bootstrap", version="0.1.0")

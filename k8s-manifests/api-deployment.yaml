@@ -82,7 +82,6 @@ spec:
           volumeMounts:
             - name: work
               mountPath: /work
-
       volumes:
         - name: work
           emptyDir: {}

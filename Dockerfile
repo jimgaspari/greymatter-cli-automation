@@ -9,8 +9,7 @@ RUN curl -fsSL -o /usr/local/bin/kubectl \
     "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
     && chmod +x /usr/local/bin/kubectl
 
-# --- Greymatter CLI install goes here (binary/curl/pip etc.) ---
-COPY greymatter /usr/local/bin/greymatter
+COPY bin/greymatter /usr/local/bin/greymatter
 
 RUN useradd -m -u 10001 appuser \
     && mkdir -p /app /work \

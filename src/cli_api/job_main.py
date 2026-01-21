@@ -1,17 +1,23 @@
 # cli_api/job_main.py
-
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
 import sys
-from typing import Any, Dict
+import traceback
+from pathlib import Path
+from typing import Any, Dict, Optional
 
+from cli_api.runner import run_cmd  # ✅ MISSING IMPORT
 from cli_api.schemas import BootstrapCoreReq, BootstrapTenantReq
 from cli_api.services.core import bootstrap_core_impl
 from cli_api.services.tenant import bootstrap_tenant_impl
 from cli_api.kubernetes.spire import check_spire_installed
+
+RESULT_PATH = os.getenv("CLI_API_RESULT_PATH", "/outputs/result.json")
+JOBS_NS = os.getenv("CLI_API_JOBS_NAMESPACE", "cli-api-jobs")
 
 
 def _read_json_file(path: str) -> Dict[str, Any]:
@@ -19,9 +25,68 @@ def _read_json_file(path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-def _print_result(obj: Dict[str, Any]) -> None:
-    # Always emit JSON so API can read logs
-    print(json.dumps(obj, indent=2, ensure_ascii=False))
+def write_result_file(result: Dict[str, Any]) -> None:
+    p = Path(RESULT_PATH)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    logging.warning("Wrote result file: %s (%d bytes)", str(p), p.stat().st_size)
+
+
+def log_result_summary(result: Dict[str, Any]) -> None:
+    rc = result.get("returncode", 1)
+    step = result.get("step") or result.get("workflow_step") or "unknown"
+    msg = result.get("stderr") or ""
+    if rc == 0:
+        logging.warning("Job succeeded. step=%s", step)
+    else:
+        logging.error("Job failed. step=%s stderr=%s", step, msg)
+
+
+def write_result_secret(*, jobs_namespace: str, run_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Persist the full result JSON to a Secret so the API can read it even after the pod is gone.
+    """
+    name = f"cli-api-result-{run_id}".lower()
+
+    payload = json.dumps(result, indent=2).encode("utf-8")
+    b64 = base64.b64encode(payload).decode("utf-8")
+
+    manifest = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": name,
+            "namespace": jobs_namespace,
+            "labels": {
+                "app": "cli-api",
+                "cli-api.greymatter.io/run-id": run_id,
+                "cli-api.greymatter.io/kind": "result",
+            },
+        },
+        "type": "Opaque",
+        "data": {
+            "result.json": b64,
+        },
+    }
+
+    return run_cmd(
+        ["kubectl", "apply", "-f", "-"],
+        input=json.dumps(manifest),
+        check=False,
+        timeout_s=30,
+    )
+
+
+def _infer_returncode(result: Dict[str, Any]) -> int:
+    rc = result.get("returncode")
+    if rc in (0, 1):
+        return int(rc)
+
+    steps = result.get("steps")
+    if isinstance(steps, list) and steps:
+        return 0 if all((s.get("returncode", 1) == 0) for s in steps) else 1
+
+    return 1
 
 
 def main() -> int:
@@ -32,39 +97,35 @@ def main() -> int:
     )
 
     payload_path = os.getenv("WORKFLOW_PAYLOAD_PATH", "/inputs/request.json")
-    run_id = os.getenv("WORKFLOW_RUN_ID", "")
+    run_id = os.getenv("WORKFLOW_RUN_ID", "").strip()
     workflow = os.getenv("WORKFLOW_NAME", "bootstrap-core").strip().lower()
 
     logging.warning("Job runner starting. run_id=%s workflow=%s payload_path=%s", run_id, workflow, payload_path)
 
-    try:
-        payload = _read_json_file(payload_path)
-    except Exception as e:
-        _print_result({"returncode": 1, "step": "read payload", "stderr": str(e), "payload_path": payload_path})
-        return 1
+    # We ALWAYS produce a result object and ALWAYS persist it
+    result: Dict[str, Any] = {
+        "returncode": 1,
+        "workflow": workflow,
+        "step": "job_start",
+        "stderr": "Job did not complete",
+    }
 
     try:
+        payload = _read_json_file(payload_path)
+
         if workflow in ("bootstrap-core", "core"):
             req = BootstrapCoreReq.model_validate(payload)
             job_steps = []
 
-            def _security_is_spire(req) -> bool:
-                sec = (getattr(req.create_platform, "security", None) or "").strip().lower()
-                return sec == "spire"
+            security = (getattr(req.create_platform, "security", None) or "").strip().lower()
+            no_managed = bool(getattr(req.create_platform, "no_managed_spire", False))
 
-            def _no_managed_spire(req) -> bool:
-                return bool(getattr(req.create_platform, "no_managed_spire", False))
-
-
-            security_spire = _security_is_spire(req)
-            no_managed = _no_managed_spire(req)
-
-            if security_spire:
+            if security == "spire":
                 spire = check_spire_installed()
                 job_steps.append({"name": "preflight_spire_installed", **spire})
-
                 installed = bool(spire.get("installed", False))
 
+                # ❌ no_managed_spire=true but SPIRE missing
                 if no_managed and not installed:
                     result = {
                         "returncode": 1,
@@ -73,50 +134,71 @@ def main() -> int:
                         "stderr": "no_managed_spire=true but SPIRE is not installed on this cluster",
                         "steps": job_steps,
                     }
-                    _print_result(result)
-                    return 1
-
-                if installed and not no_managed:
+                # ❌ SPIRE installed but no_managed_spire is false
+                elif installed and not no_managed:
                     result = {
                         "returncode": 1,
                         "workflow": workflow,
                         "step": "preflight_spire_installed",
-                        "stderr": (
-                            "SPIRE is already installed on this cluster."
-                        ),
+                        "stderr": "SPIRE is already installed on this cluster. Set no_managed_spire=true to continue.",
                         "steps": job_steps,
                     }
-                    _print_result(result)
-                    return 1
-
-            result = bootstrap_core_impl(req)
+                else:
+                    # ✅ proceed
+                    result = bootstrap_core_impl(req)
+                    result.setdefault("steps", [])
+                    result["steps"] = job_steps + result["steps"]
+            else:
+                # not spire security mode: just proceed
+                result = bootstrap_core_impl(req)
 
         elif workflow in ("bootstrap-tenant", "tenant"):
             req = BootstrapTenantReq.model_validate(payload)
             result = bootstrap_tenant_impl(req)
 
         else:
-            _print_result({"returncode": 1, "step": "select workflow", "stderr": f"Unknown WORKFLOW_NAME: {workflow}"})
-            return 1
+            result = {
+                "returncode": 1,
+                "workflow": workflow,
+                "step": "select_workflow",
+                "stderr": f"Unknown WORKFLOW_NAME: {workflow}",
+            }
 
     except Exception as e:
         logging.exception("Workflow crashed")
-        _print_result({"returncode": 1, "step": "workflow exception", "stderr": repr(e)})
-        return 1
+        result = {
+            "returncode": 1,
+            "workflow": workflow,
+            "step": "workflow_exception",
+            "stderr": str(e),
+            "traceback": traceback.format_exc(),
+        }
 
-    _print_result(result)
+    finally:
+        # Always normalize returncode
+        result["returncode"] = _infer_returncode(result)
 
-    rc = result.get("returncode", None)
+        # Always write result artifacts
+        try:
+            write_result_file(result)
+        except Exception:
+            logging.exception("Failed to write result file to %s", RESULT_PATH)
 
-    # If workflow forgot to provide returncode, infer from steps
-    if rc is None:
-        steps = result.get("steps")
-        if isinstance(steps, list) and steps:
-            rc = 0 if all((s.get("returncode", 1) == 0) for s in steps) else 1
+        if run_id:
+            try:
+                sec_res = write_result_secret(jobs_namespace=JOBS_NS, run_id=run_id, result=result)
+                if sec_res.get("returncode", 1) != 0:
+                    logging.error("Failed to write result secret: %s", sec_res.get("stderr", ""))
+                else:
+                    logging.warning("Wrote result secret: cli-api-result-%s", run_id)
+            except Exception:
+                logging.exception("Failed to write result secret")
         else:
-            rc = 1  # no returncode + no steps => treat as failure
+            logging.warning("WORKFLOW_RUN_ID is empty; skipping result secret write")
 
-    return 0 if rc == 0 else 1
+        log_result_summary(result)
+
+    return 0 if result.get("returncode", 1) == 0 else 1
 
 
 if __name__ == "__main__":

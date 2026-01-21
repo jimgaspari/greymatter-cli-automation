@@ -1,10 +1,14 @@
 # cli_api/kubernetes/jobs.py
 
 from __future__ import annotations
-
+from fastapi import Header, HTTPException
+from typing import Any, Dict, List, Optional
+from pathlib import Path
 import json
 import re
-from typing import Any, Dict, List, Optional
+import time
+import base64
+import logging
 
 from ..runner import run_cmd
 
@@ -112,6 +116,7 @@ def create_workflow_job(
                             "volumeMounts": [
                                 {"name": "inputs", "mountPath": "/inputs", "readOnly": True},
                                 {"name": "work", "mountPath": "/work"},
+                                {"name": "outputs", "mountPath": "/outputs"},
                             ],
                         }
                     ],
@@ -126,6 +131,7 @@ def create_workflow_job(
                             },
                         },
                         {"name": "work", "emptyDir": {}},
+                        {"name": "outputs", "emptyDir": {}},
                     ],
                 },
             },
@@ -140,17 +146,21 @@ def create_workflow_job(
     applied["namespace"] = jobs_namespace
     return applied
 
-
-def get_job(
-    *,
-    jobs_namespace: str,
-    job_name: str,
-) -> Dict[str, Any]:
-    return _kubectl_get_json(
-        ["kubectl", "-n", jobs_namespace, "get", "job", job_name],
+def get_job(namespace: str, job_name: str) -> Dict[str, Any]:
+    res = run_cmd(
+        ["kubectl", "-n", namespace, "get", "job", job_name, "-o", "json"],
+        check=False,
         timeout_s=30,
     )
+    if res.get("returncode", 1) != 0:
+        return {"returncode": 1, "step": "kubectl get job", **res}
 
+    try:
+        job = json.loads(res["stdout"])
+    except Exception as e:
+        return {"returncode": 1, "step": "parse job json", "stderr": str(e), **res}
+
+    return {"returncode": 0, "job": job}
 
 def get_job_status(
     *,
@@ -193,7 +203,6 @@ def get_job_status(
     res["status"] = status
     return res
 
-
 def list_job_pods(
     *,
     jobs_namespace: str,
@@ -207,43 +216,29 @@ def list_job_pods(
         timeout_s=30,
     )
 
-
-def get_job_pod_name(
-    *,
-    jobs_namespace: str,
-    job_name: str,
-) -> Dict[str, Any]:
-    """
-    Returns one pod name for the job (prefers most recent by creationTimestamp).
-    """
-    res = list_job_pods(jobs_namespace=jobs_namespace, job_name=job_name)
-    if res.get("returncode", 1) != 0:
-        return res
-
-    items = (res.get("json") or {}).get("items", []) or []
-    if not items:
-        return {"returncode": 1, "stderr": f"No pods found for job {job_name}", "stdout": ""}
-
-    # pick newest pod
-    items.sort(key=lambda p: (p.get("metadata", {}) or {}).get("creationTimestamp", ""))
-    pod = items[-1]
-    pod_name = (pod.get("metadata", {}) or {}).get("name")
-    return {"returncode": 0, "pod_name": pod_name, "pod": pod}
-
-
-def get_pod_logs(
-    *,
-    jobs_namespace: str,
-    pod_name: str,
-    container: str = "runner",
-    tail_lines: int = 200,
-) -> Dict[str, Any]:
-    return run_cmd(
-        ["kubectl", "-n", jobs_namespace, "logs", pod_name, "-c", container, "--tail", str(tail_lines)],
-        timeout_s=30,
+def get_job_pod_name(namespace: str, job_name: str) -> Optional[str]:
+    # pick the newest pod for the job
+    res = run_cmd(
+        [
+            "kubectl", "-n", namespace, "get", "pods",
+            "-l", f"job-name={job_name}",
+            "-o", "jsonpath={.items[-1:].metadata.name}",
+        ],
         check=False,
+        timeout_s=30,
     )
+    if res.get("returncode", 1) != 0:
+        return None
+    name = (res.get("stdout") or "").strip()
+    return name or None
 
+def get_pod_logs(namespace: str, pod_name: str, container: str = "runner", tail: int = 500) -> Dict[str, Any]:
+    res = run_cmd(
+        ["kubectl", "-n", namespace, "logs", pod_name, "-c", container, f"--tail={tail}"],
+        check=False,
+        timeout_s=30,
+    )
+    return {"returncode": res.get("returncode", 1), "stdout": res.get("stdout", ""), "stderr": res.get("stderr", "")}
 
 def get_job_logs(
     *,
@@ -266,7 +261,6 @@ def get_job_logs(
         tail_lines=tail_lines,
     )
 
-
 def delete_job(
     *,
     jobs_namespace: str,
@@ -279,3 +273,110 @@ def delete_job(
     else:
         argv.append("--wait=false")
     return run_cmd(argv, timeout_s=30, check=False)
+
+def summarize_job(job: Dict[str, Any]) -> Dict[str, Any]:
+    status = job.get("status", {}) or {}
+    conditions = status.get("conditions") or []
+
+    cond_map = {c.get("type"): c for c in conditions if isinstance(c, dict)}
+    complete = cond_map.get("Complete")
+    failed = cond_map.get("Failed")
+
+    succeeded = status.get("succeeded", 0) or 0
+    failed_count = status.get("failed", 0) or 0
+    active = status.get("active", 0) or 0
+
+    phase = "running"
+    if failed is not None or failed_count > 0:
+        phase = "failed"
+    elif complete is not None or succeeded > 0:
+        phase = "succeeded"
+    elif active > 0:
+        phase = "running"
+    else:
+        phase = "pending"
+
+    return {
+        "phase": phase,
+        "active": active,
+        "succeeded": succeeded,
+        "failed": failed_count,
+        "conditions": conditions,
+        "startTime": status.get("startTime"),
+        "completionTime": status.get("completionTime"),
+    }
+
+def wait_for_job_completion(
+    namespace: str,
+    job_name: str,
+    timeout_s: int = 900,
+    poll_s: float = 2.0,
+) -> Dict[str, Any]:
+    """
+    Wait until job is succeeded or failed, or timeout.
+    Returns a structured status summary.
+    """
+    deadline = time.time() + timeout_s
+    last_summary: Dict[str, Any] = {}
+
+    while time.time() < deadline:
+        gj = get_job(namespace, job_name)
+        if gj.get("returncode", 1) != 0:
+            return {"returncode": 1, "step": "wait get job", "detail": gj}
+
+        job = gj["job"]
+        summary = summarize_job(job)
+        last_summary = summary
+
+        if summary["phase"] in ("succeeded", "failed"):
+            return {"returncode": 0, "summary": summary, "job": job}
+
+        time.sleep(poll_s)
+
+    return {
+        "returncode": 1,
+        "step": "wait timeout",
+        "stderr": f"Timed out waiting for job {job_name} in {namespace} after {timeout_s}s",
+        "last_summary": last_summary,
+    }
+
+def get_job_result_json(namespace: str, pod_name: str, container: str = "runner") -> Dict[str, Any]:
+    res = run_cmd(
+        ["kubectl", "-n", namespace, "exec", pod_name, "-c", container, "--", "cat", "/outputs/result.json"],
+        check=False,
+        timeout_s=30,
+    )
+    if res.get("returncode", 1) != 0:
+        return {"returncode": 1, "step": "read result.json", **res}
+
+    try:
+        parsed = json.loads(res.get("stdout") or "{}")
+    except Exception as e:
+        return {"returncode": 1, "step": "parse result.json", "stderr": str(e), "raw": res.get("stdout", "")}
+
+    return {"returncode": 0, "result": parsed}
+
+
+def read_result_secret(*, jobs_namespace: str, run_id: str) -> Dict[str, Any]:
+    name = f"cli-api-result-{run_id}".lower()
+
+    res = run_cmd(
+        ["kubectl", "-n", jobs_namespace, "get", "secret", name, "-o", "jsonpath={.data.result\\.json}"],
+        check=False,
+        timeout_s=30,
+    )
+    if res.get("returncode", 1) != 0:
+        return {"returncode": 1, "step": "get result secret", **res}
+
+    b64 = (res.get("stdout") or "").strip()
+    if not b64:
+        return {"returncode": 1, "step": "get result secret", "stderr": "result.json key missing/empty"}
+
+    try:
+        decoded = base64.b64decode(b64).decode("utf-8")
+        parsed = json.loads(decoded)
+    except Exception as e:
+        return {"returncode": 1, "step": "decode result secret", "stderr": str(e)}
+
+    return {"returncode": 0, "result": parsed}
+
