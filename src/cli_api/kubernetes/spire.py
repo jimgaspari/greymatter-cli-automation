@@ -1,6 +1,6 @@
 # cli_api/kubernetes/spire.py
 from __future__ import annotations
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from ..runner import run_cmd
 
@@ -8,7 +8,7 @@ from ..runner import run_cmd
 def check_spire_installed() -> Dict[str, Any]:
     """
     Detect SPIRE installation using server StatefulSet presence.
-    Intended to run inside the job runner pod.
+    Only returns detailed diagnostics if SPIRE *is* installed.
     """
     checks: Dict[str, Any] = {}
 
@@ -29,7 +29,7 @@ def check_spire_installed() -> Dict[str, Any]:
             "returncode": 0,
             "installed": True,
             "method": "statefulset(instance=spire)",
-            "checks": checks,
+            "checks": checks,   # ONLY included on installed
         }
 
     # 2) Fallback: common app labels
@@ -52,7 +52,7 @@ def check_spire_installed() -> Dict[str, Any]:
             "checks": checks,
         }
 
-    # 3) Optional fallback: CRDs (indicates SPIRE was installed at some point)
+    # 3) Optional fallback: CRDs
     crds = run_cmd(
         ["kubectl", "get", "crd", "-o", "name"],
         check=False,
@@ -65,8 +65,8 @@ def check_spire_installed() -> Dict[str, Any]:
             l for l in (crds.get("stdout") or "").splitlines()
             if ".spire.spiffe.io" in l
         ]
-        checks["spire_crds"] = spire_crds
         if spire_crds:
+            checks["spire_crds"] = spire_crds
             return {
                 "returncode": 0,
                 "installed": True,
@@ -74,9 +74,8 @@ def check_spire_installed() -> Dict[str, Any]:
                 "checks": checks,
             }
 
-    # Not installed
+    # Success case: NOT installed → quiet
     return {
         "returncode": 0,
         "installed": False,
-        "checks": checks,
     }

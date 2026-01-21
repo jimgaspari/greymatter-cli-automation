@@ -6,7 +6,7 @@ TOKEN="devtoken"
 REPO_URL="git@gitea-ssh.home.pogotech.net:jimgaspari/auto-cli-core.git"
 NAMESPACE="spire-greymatter"
 BASE_BRANCH="main"
-TARGET_BRANCH="bootstrap-test-2"
+TARGET_BRANCH="bootstrap-test"
 
 jq -n \
   --arg repo_url "$REPO_URL" \
@@ -28,6 +28,7 @@ jq -n \
       known_hosts: $known_hosts,
       strict_host_key_checking: true
     },
+    namespace: $ns,
     depth: 1,
     workspace: "test-2",
     git: {
@@ -40,7 +41,6 @@ jq -n \
       author_email: $author_email
     },
     kubectl: { 
-      namespace: $ns,
       image_pull: {
         docker_server: $docker_server,
         docker_username: $docker_user,
@@ -52,7 +52,6 @@ jq -n \
     create_platform: {
       display_name: "Jims Mesh",
       mesh_name: "no-spire-mesh",
-      namespace: $ns,
       security: "spire",
       no_managed_spire: true,
       image_repository: "staging-oci.download.greymatter.io"

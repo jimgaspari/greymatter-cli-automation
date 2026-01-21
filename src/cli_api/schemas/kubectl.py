@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Optional
 
 class ImagePullSecret(BaseModel):
     docker_server: str = "oci.download.greymatter.io"
@@ -10,6 +11,6 @@ class RepoSecret(BaseModel):
     secret_name: str = "greymatter-core-repo"
 
 class KubernetesSecrets(BaseModel):
-    namespace: str
+    namespace: Optional[str] = None
     image_pull: ImagePullSecret
     create_repo_secret: bool = True

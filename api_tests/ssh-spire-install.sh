@@ -29,6 +29,7 @@ jq -n \
       strict_host_key_checking: true
     },
     depth: 1,
+    namespace: $ns,
     workspace: "test-1",
     git: {
       base_branch: $base_branch,
@@ -40,7 +41,6 @@ jq -n \
       author_email: $author_email
     },
     kubectl: { 
-      namespace: $ns,
       image_pull: {
         docker_server: $docker_server,
         docker_username: $docker_user,
@@ -52,7 +52,6 @@ jq -n \
     create_platform: {
       display_name: "Jims Mesh",
       mesh_name: "spire-mesh",
-      namespace: $ns,
       security: "spire",
       image_repository: "staging-oci.download.greymatter.io"
     }

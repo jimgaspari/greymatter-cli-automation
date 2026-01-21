@@ -122,11 +122,11 @@ def main() -> int:
 
             if security == "spire":
                 spire = check_spire_installed()
-                job_steps.append({"name": "preflight_spire_installed", **spire})
                 installed = bool(spire.get("installed", False))
 
                 # no_managed_spire=true but SPIRE missing
                 if no_managed and not installed:
+                    job_steps.append({"name": "preflight_spire_installed", **spire})  # include diagnostics on failure
                     result = {
                         "returncode": 1,
                         "workflow": workflow,
@@ -136,6 +136,7 @@ def main() -> int:
                     }
                 # SPIRE installed but no_managed_spire is false
                 elif installed and not no_managed:
+                    job_steps.append({"name": "preflight_spire_installed", **spire})  # include diagnostics on failure
                     result = {
                         "returncode": 1,
                         "workflow": workflow,
