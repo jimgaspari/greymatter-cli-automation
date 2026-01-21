@@ -22,6 +22,7 @@ class CreatePlatformOptions(BaseModel):
     openshift: bool = Field(default=False, description="Enable OpenShift support")
     no_gitops_fips: bool = Field(default=False, description="Disable FIPS 140-3 for GitOps requests")
     security: Optional[SecurityType] = Field(default=None, description='Mesh security type: plaintext|spire|pki')
+    mesh_name: Optional[str] = Field(default=None, description='Mesh Name (default "greymatter-mesh")')
 
     # Prometheus Options
     prometheus_address: Optional[str] = Field(default=None, description="Host:Port of external Prometheus")
