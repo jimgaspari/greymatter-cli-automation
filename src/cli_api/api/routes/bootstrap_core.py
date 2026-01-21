@@ -80,66 +80,67 @@ def api_bootstrap_core(req: BootstrapCoreReq, x_api_token: Optional[str] = Heade
         )
 
     job_name = job_res["job_name"]
-
-    wait_res = wait_for_job_completion(
-        namespace=jobs_ns,
-        job_name=job_name,
-        timeout_s=getattr(settings, "job_wait_timeout_s", 900),
-        poll_s=2.0,
-    )
-
-    # Best-effort logs (don’t fail the request just because logs aren’t available)
-    pod_name = get_job_pod_name(jobs_ns, job_name)
-    logs = get_pod_logs(jobs_ns, pod_name, container="runner", tail=400) if pod_name else None
-
-    if wait_res.get("returncode", 1) != 0:
-        # timed out or couldn't query status — do NOT try to read/delete result secret here
-        raise HTTPException(
-            status_code=504,
-            detail={
-                "returncode": 1,
-                "step": "wait for job completion",
-                "run_id": run_id,
-                "jobs_namespace": jobs_ns,
-                "job_name": job_name,
-                "secret_name": secret_res["secret_name"],
-                "detail": wait_res,
-                "logs": logs,
-            },
+    input_secret_name = secret_res["secret_name"]
+    try:
+        wait_res = wait_for_job_completion(
+            namespace=jobs_ns,
+            job_name=job_name,
+            timeout_s=getattr(settings, "job_wait_timeout_s", 900),
+            poll_s=2.0,
         )
 
-    # Job completed: now read result secret with retries
-    result_res = read_result_secret(
-        jobs_namespace=jobs_ns,
-        run_id=run_id
-    )
-    result_obj = result_res["result"] if result_res.get("returncode") == 0 else None
+        # Best-effort logs (don’t fail the request just because logs aren’t available)
+        pod_name = get_job_pod_name(jobs_ns, job_name)
+        logs = get_pod_logs(jobs_ns, pod_name, container="runner", tail=400) if pod_name else None
 
-    # Determine returncode (prefer result_obj; fallback to job phase)
-    if isinstance(result_obj, dict):
-        rc = 0 if result_obj.get("returncode", 1) == 0 else 1
-    else:
-        phase = wait_res["summary"]["phase"]
-        rc = 0 if phase == "succeeded" else 1
+        if wait_res.get("returncode", 1) != 0:
+            # timed out or couldn't query status — do NOT try to read/delete result secret here
+            raise HTTPException(
+                status_code=504,
+                detail={
+                    "returncode": 1,
+                    "step": "wait for job completion",
+                    "run_id": run_id,
+                    "jobs_namespace": jobs_ns,
+                    "job_name": job_name,
+                    "secret_name": secret_res["secret_name"],
+                    "detail": wait_res,
+                    "logs": logs,
+                },
+            )
 
-    # Only delete the result secret if we successfully read it
-    if result_obj is not None:
-        run_cmd(
-            ["kubectl", "-n", jobs_ns, "delete", "secret", f"cli-api-result-{run_id}".lower()],
-            check=False,
-            timeout_s=30,
+        # Job completed: now read result secret with retries
+        result_res = read_result_secret(
+            jobs_namespace=jobs_ns,
+            run_id=run_id
         )
+        result_obj = result_res["result"] if result_res.get("returncode") == 0 else None
 
-    return {
-        "returncode": rc,
-        "run_id": run_id,
-        "jobs_namespace": jobs_ns,
-        "job_name": job_name,
-        "secret_name": secret_res["secret_name"],
-        "summary": wait_res["summary"],
-        "result": result_obj,
-        "logs": logs,
-        # Optional: include this to help debug when result_obj is None
-        "result_read": result_res if result_obj is None else {"returncode": 0},
-    }
-    
+        # Determine returncode (prefer result_obj; fallback to job phase)
+        if isinstance(result_obj, dict):
+            rc = 0 if result_obj.get("returncode", 1) == 0 else 1
+        else:
+            phase = wait_res["summary"]["phase"]
+            rc = 0 if phase == "succeeded" else 1
+
+        # Only delete the result secret if we successfully read it
+        if result_obj is not None:
+            run_cmd(
+                ["kubectl", "-n", jobs_ns, "delete", "secret", f"cli-api-result-{run_id}".lower()],
+                check=False,
+                timeout_s=30,
+            )
+        return {
+            "returncode": rc,
+            "run_id": run_id,
+            "jobs_namespace": jobs_ns,
+            "job_name": job_name,
+            "secret_name": secret_res["secret_name"],
+            "summary": wait_res["summary"],
+            "result": result_obj,
+            "logs": logs,
+            # Optional: include this to help debug when result_obj is None
+            "result_read": result_res if result_obj is None else {"returncode": 0},
+        }
+    finally:
+        delete_run_input_secret(jobs_namespace=jobs_ns, secret_name=input_secret_name)

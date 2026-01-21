@@ -10,7 +10,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from cli_api.runner import run_cmd  # ✅ MISSING IMPORT
+from cli_api.runner import run_cmd
 from cli_api.schemas import BootstrapCoreReq, BootstrapTenantReq
 from cli_api.services.core import bootstrap_core_impl
 from cli_api.services.tenant import bootstrap_tenant_impl
@@ -125,7 +125,7 @@ def main() -> int:
                 job_steps.append({"name": "preflight_spire_installed", **spire})
                 installed = bool(spire.get("installed", False))
 
-                # ❌ no_managed_spire=true but SPIRE missing
+                # no_managed_spire=true but SPIRE missing
                 if no_managed and not installed:
                     result = {
                         "returncode": 1,
@@ -134,7 +134,7 @@ def main() -> int:
                         "stderr": "no_managed_spire=true but SPIRE is not installed on this cluster",
                         "steps": job_steps,
                     }
-                # ❌ SPIRE installed but no_managed_spire is false
+                # SPIRE installed but no_managed_spire is false
                 elif installed and not no_managed:
                     result = {
                         "returncode": 1,
@@ -144,7 +144,7 @@ def main() -> int:
                         "steps": job_steps,
                     }
                 else:
-                    # ✅ proceed
+                    # proceed
                     result = bootstrap_core_impl(req)
                     result.setdefault("steps", [])
                     result["steps"] = job_steps + result["steps"]
