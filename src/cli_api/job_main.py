@@ -15,6 +15,7 @@ from cli_api.schemas import BootstrapCoreReq, BootstrapTenantReq
 from cli_api.services.core import bootstrap_core_impl
 from cli_api.services.tenant import bootstrap_tenant_impl
 from cli_api.kubernetes.spire import check_spire_installed
+from cli_api.git.repo import ensure_gitea_repo, parse_git_repo_url
 
 RESULT_PATH = os.getenv("CLI_API_RESULT_PATH", "/outputs/result.json")
 JOBS_NS = os.getenv("CLI_API_JOBS_NAMESPACE", "cli-api-jobs")
@@ -113,8 +114,45 @@ def main() -> int:
     try:
         payload = _read_json_file(payload_path)
 
+
+
         if workflow in ("bootstrap-core", "core"):
             req = BootstrapCoreReq.model_validate(payload)
+
+            info = parse_git_repo_url(req.clone.repo_url)
+
+            # Token source depends on your schema; pick the correct field
+            token = getattr(req.clone, "token", None)
+            if not token:
+                # If you're using SSH clone and no token is provided, you cannot create repos via API
+                result = {
+                    "returncode": 1,
+                    "workflow": workflow,
+                    "step": "ensure_repo_exists",
+                    "stderr": "Missing clone.token for Gitea API repo creation",
+                }
+                # write_result_file/result_secret happens in finally
+                return 1  # or set result and fall through
+
+            ensure_res = ensure_gitea_repo(
+                base_url=info["base_url"],
+                owner=info["owner"],
+                repo=info["repo"],
+                token=token,
+                verify_ssl=not req.clone.insecure_skip_tls_verify,
+            )
+
+            if ensure_res.get("returncode", 1) != 0:
+                result = {
+                    "returncode": 1,
+                    "workflow": workflow,
+                    "step": "ensure_repo_exists",
+                    "stderr": ensure_res.get("stderr", "failed to ensure repo"),
+                    "detail": ensure_res,
+                }
+                # write_result_file/result_secret happens in finally
+                return 1
+            
             job_steps = []
 
             security = (getattr(req.create_platform, "security", None) or "").strip().lower()

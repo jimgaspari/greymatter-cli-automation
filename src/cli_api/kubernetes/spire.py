@@ -29,7 +29,6 @@ def check_spire_installed() -> Dict[str, Any]:
             "returncode": 0,
             "installed": True,
             "method": "statefulset(instance=spire)",
-            "checks": checks,   # ONLY included on installed
         }
 
     # 2) Fallback: common app labels
@@ -49,7 +48,6 @@ def check_spire_installed() -> Dict[str, Any]:
             "returncode": 0,
             "installed": True,
             "method": "statefulset(app=spire-server)",
-            "checks": checks,
         }
 
     # 3) Optional fallback: CRDs
@@ -71,7 +69,6 @@ def check_spire_installed() -> Dict[str, Any]:
                 "returncode": 0,
                 "installed": True,
                 "method": "spire_crds_present",
-                "checks": checks,
             }
 
     # Success case: NOT installed → quiet

@@ -20,7 +20,8 @@ class CloneViaHTTPS(BaseModel):
     username: Optional[str] = Field(default=None, description="Basic auth username")
     password: Optional[str] = Field(default=None, description="Basic auth password")
     token: Optional[str] = Field(default=None, description="Personal access token")
-
+    insecure_skip_tls_verify: bool = False
+    
 class GitBehavior(BaseModel):
     base_branch: str = "main"                 # branch we can safely clone
     target_branch: Optional[str] = None       # branch we want to work on (e.g. "test1")

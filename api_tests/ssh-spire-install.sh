@@ -16,8 +16,8 @@ jq -n \
   --arg base_branch "$BASE_BRANCH" \
   --arg target_branch "$TARGET_BRANCH" \
   --arg docker_server "staging-oci.download.greymatter.io" \
-  --arg docker_user "jgaspari" \
-  --arg docker_pass "etu4ckf7HFB3bqm-rjq" \
+  --arg docker_user "$DOCKER_USERNAME" \
+  --arg docker_pass "$DOCKER_PASSWORD" \
   --arg author_name "Greymatter Automation" \
   --arg author_email "greymatter-bot@greymatter.io" \
   '{

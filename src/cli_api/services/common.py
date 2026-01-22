@@ -77,10 +77,13 @@ def build_git_env(req, workspace_path: str) -> dict:
 
     # HTTPS (whatever you renamed this to)
     return prepare_https_auth(
+        workspace_path=workspace_path,
         username=req.clone.username,
         password=req.clone.password,
         token=req.clone.token,
+        insecure_skip_tls_verify=getattr(req.clone, "insecure_skip_tls_verify", False),
     )
+
 
 
 def do_clone(req, run_id: str, git_env: dict, subdir: str = "repo") -> tuple[str, Dict[str, Any]]:
@@ -146,3 +149,21 @@ def ensure_file_exists(path: Path, step_name: str):
                 "expected_path": str(path),
             },
         )
+
+def check_existing_greymatter_repo(repo_path: str) -> Dict[str, Any]:
+    gm_file = Path(repo_path) / ".greymatter"
+
+    if gm_file.exists():
+        return {
+            "returncode": 0,
+            "step": "preflight_existing_greymatter_repo",
+            "exists": True,
+            "message": "Repository already contains Greymatter configuration (.greymatter file present).",
+            "path": str(gm_file),
+        }
+
+    return {
+        "returncode": 0,
+        "step": "preflight_existing_greymatter_repo",
+        "exists": False,
+    }

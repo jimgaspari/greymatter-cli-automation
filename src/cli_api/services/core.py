@@ -16,6 +16,7 @@ from .common import (
     do_commit_push,
     ensure_file_exists,
     fail,
+    check_existing_greymatter_repo
 )
 from ..kubernetes.secrets import (
     create_namespace,
@@ -50,6 +51,19 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
         response["steps"].append(br_step)
         if br_step["returncode"] != 0:
             return fail("ensure branch", br_step, response=response)
+
+    existing = check_existing_greymatter_repo(dest_path)
+    response["steps"].append(existing)
+
+    if existing.get("exists"):
+        response["result"] = {
+            "skipped": True,
+            "reason": "existing_greymatter_repo",
+            "message": existing["message"],
+            "repo_path": dest_path,
+        }
+        response["returncode"] = 0
+        return response
 
     id_step = do_identity(req, dest_path=dest_path, git_env=git_env)
     response["steps"].append(id_step)
@@ -108,18 +122,50 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
         return fail("kubectl image pull secret", img_res, response=response)
 
     # Step: repo secret (SSH only for now)
-    if k8s.create_repo_secret and req.clone.type == "ssh":
-        repo_res = create_repo_secret(
-            namespace=ns,
-            secret_name=k8s.image_pull.secret_name.replace("image-pull", "core-repo"),
-            repo_url=req.clone.repo_url,
-            branch=req.git.target_branch or req.git.base_branch,
-            known_hosts=req.clone.known_hosts,
-            ssh_key=req.clone.ssh_private_key,
-        )
+    if k8s.create_repo_secret:
+        secret_name = k8s.image_pull.secret_name.replace("image-pull", "core-repo")
+
+        if req.clone.type == "ssh":
+            repo_res = create_repo_secret(
+                namespace=ns,
+                secret_name=secret_name,
+                repo_url=req.clone.repo_url,
+                branch=req.git.target_branch or req.git.base_branch,
+                auth_type="ssh",
+                known_hosts=req.clone.known_hosts,
+                ssh_key=req.clone.ssh_private_key,
+            )
+        else:
+            # HTTPS (token preferred; password fallback)
+            http_password = req.clone.token or req.clone.password
+            http_username = req.clone.username or ("oauth2" if req.clone.token else "")
+
+            if not http_password:
+                return fail(
+                    "kubectl repo secret",
+                    {
+                        "returncode": 1,
+                        "stderr": "HTTPS clone selected but no clone.token or clone.password provided",
+                        "step": "kubectl repo secret",
+                    },
+                    response=response,
+                )
+
+            repo_res = create_repo_secret(
+                namespace=ns,
+                secret_name=secret_name,
+                repo_url=req.clone.repo_url,
+                branch=req.git.target_branch or req.git.base_branch,
+                auth_type="https",
+                http_username=http_username,
+                http_password=http_password,
+                tls_insecure_verify=getattr(req.clone, "insecure_skip_tls_verify", False),
+            )
+
         response["steps"].append({"name": "kubectl_repo_secret", **repo_res})
-        if repo_res["returncode"] != 0:
+        if repo_res.get("returncode", 1) != 0:
             return fail("kubectl repo secret", repo_res, response=response)
+
 
     # Commit + push (optional)
     commit_step = do_commit_push(req, dest_path=dest_path, git_env=git_env, message="chore: bootstrap greymatter core")

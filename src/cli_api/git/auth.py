@@ -51,11 +51,17 @@ def prepare_ssh_auth(
 
 def prepare_https_auth(
     *,
+    workspace_path: str,
     username: Optional[str] = None,
     password: Optional[str] = None,
     token: Optional[str] = None,
+    insecure_skip_tls_verify: bool = False,
 ) -> Dict[str, str]:
     env = os.environ.copy()
+
+    # Allow self-signed certs for git over HTTPS (opt-in)
+    if insecure_skip_tls_verify:
+        env["GIT_SSL_NO_VERIFY"] = "true"
 
     # No auth needed
     if not (password or token):
@@ -64,15 +70,15 @@ def prepare_https_auth(
     secret_password = token if token is not None else (password or "")
     secret_username = username or ""
 
-    # If token provided and no username, pick a common placeholder
-    if token and not username:
+    # If token provided and no username, use a common placeholder
+    # (GitLab uses "oauth2"; GitHub can be anything; Gitea accepts token as password too)
+    if token and not secret_username:
         secret_username = "oauth2"
 
-    # IMPORTANT: Askpass path must persist for workflow duration.
-    # Put it somewhere stable (workspace .git-auth) if you want. For now we'll still
-    # use a temp file approach, but it MUST be workflow-scoped, not function-scoped.
-    td = tempfile.mkdtemp(prefix="git-askpass-")
-    askpass_path = os.path.join(td, "askpass.sh")
+    # Put askpass in a workflow-scoped location so it survives the process lifetime
+    auth_dir = Path(workspace_path) / ".git-auth"
+    auth_dir.mkdir(parents=True, exist_ok=True)
+    askpass_path = auth_dir / "askpass.sh"
 
     script = f"""#!/bin/sh
 case "$1" in
@@ -81,12 +87,14 @@ case "$1" in
   *) echo "" ;;
 esac
 """
-    with open(askpass_path, "w", encoding="utf-8") as f:
-        f.write(script)
+    askpass_path.write_text(script, encoding="utf-8")
     os.chmod(askpass_path, 0o700)
 
-    env["GIT_ASKPASS"] = askpass_path
+    env["GIT_ASKPASS"] = str(askpass_path)
     env["GIT_TERMINAL_PROMPT"] = "0"
+
+    # These two are not used by git directly, but can help debugging or wrappers.
     env["GIT_USERNAME"] = secret_username
     env["GIT_PASSWORD"] = secret_password
+
     return env

@@ -8,7 +8,12 @@ version = "0.1.0"
 description = "REST API to run git/greymatter/kubectl commands in a container with guardrails."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "pydantic>=2.6"]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.6",
+    "requests>=2.31.0",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.26", "ruff>=0.1.0"]

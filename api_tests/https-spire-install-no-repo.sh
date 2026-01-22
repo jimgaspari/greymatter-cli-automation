@@ -3,18 +3,18 @@ set -euo pipefail
 
 API_URL="http://localhost:8080/api/workflows/bootstrap-core"
 TOKEN="devtoken"
-REPO_URL="git@gitea-ssh.home.pogotech.net:jimgaspari/auto-cli-core.git"
-NAMESPACE="spire-greymatter"
+REPO_URL="https://gitea.home.pogotech.net/jimgaspari/auto-cli-core-test.git"
+NAMESPACE="greymatter"
 BASE_BRANCH="main"
-TARGET_BRANCH="bootstrap-test"
+API_KEY=$GITEA_TOKEN
+
 
 jq -n \
   --arg repo_url "$REPO_URL" \
-  --rawfile ssh_key /home/jim/.ssh/id_ed25519 \
-  --rawfile known_hosts /home/jim/.ssh/known_hosts \
+  --arg git_user "$GIT_USERNAME" \
+  --arg api_key "$API_KEY" \
   --arg ns "$NAMESPACE" \
   --arg base_branch "$BASE_BRANCH" \
-  --arg target_branch "$TARGET_BRANCH" \
   --arg docker_server "staging-oci.download.greymatter.io" \
   --arg docker_user "$DOCKER_USERNAME" \
   --arg docker_pass "$DOCKER_PASSWORD" \
@@ -22,18 +22,17 @@ jq -n \
   --arg author_email "greymatter-bot@greymatter.io" \
   '{
     clone: {
-      type: "ssh",
+      type: "https",
       repo_url: $repo_url,
-      ssh_private_key: $ssh_key,
-      known_hosts: $known_hosts,
-      strict_host_key_checking: true
+      username: $git_user,
+      token: $api_key,
+      insecure_skip_tls_verify: true
     },
-    namespace: $ns,
     depth: 1,
-    workspace: "test-2",
+    workspace: "test-1",
+    namespace: $ns,
     git: {
       base_branch: $base_branch,
-      target_branch: $target_branch,
       create_branch_if_missing: true,
       push_branch_to_remote: true,
       push_changes: true,
@@ -51,9 +50,8 @@ jq -n \
     },
     create_platform: {
       display_name: "Jims Mesh",
-      mesh_name: "no-spire-mesh",
+      mesh_name: "spire-mesh",
       security: "spire",
-      no_managed_spire: true,
       image_repository: "staging-oci.download.greymatter.io"
     }
   }' \
@@ -62,4 +60,3 @@ jq -n \
     -H "X-API-Token: $TOKEN" \
     --data-binary @- \
 | jq
-
