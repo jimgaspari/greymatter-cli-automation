@@ -8,6 +8,8 @@ NAMESPACE="greymatter"
 BASE_BRANCH="main"
 API_KEY=$GITEA_TOKEN
 
+curl -k -X DELETE "https://gitea.home.pogotech.net/api/v1/repos/jimgaspari/auto-cli-core-test" \
+  -H "Authorization: token $GITEA_TOKEN"
 
 jq -n \
   --arg repo_url "$REPO_URL" \
