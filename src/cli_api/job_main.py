@@ -119,10 +119,10 @@ def main() -> int:
         if workflow in ("bootstrap-core", "core"):
             req = BootstrapCoreReq.model_validate(payload)
 
-            info = parse_git_repo_url(req.clone.repo_url)
+            info = parse_git_repo_url(req.git.repo_url)
 
             # Token source depends on your schema; pick the correct field
-            token = getattr(req.clone, "token", None)
+            token = getattr(req.git, "token", None)
             if not token:
                 # If you're using SSH clone and no token is provided, you cannot create repos via API
                 result = {
@@ -134,21 +134,21 @@ def main() -> int:
                 # write_result_file/result_secret happens in finally
                 return 1  # or set result and fall through
 
-            ensure_res = ensure_gitea_repo(
+            ensure_repo = ensure_gitea_repo(
                 base_url=info["base_url"],
                 owner=info["owner"],
                 repo=info["repo"],
                 token=token,
-                verify_ssl=not req.clone.insecure_skip_tls_verify,
+                verify_ssl=not req.git.insecure_skip_tls_verify,
             )
 
-            if ensure_res.get("returncode", 1) != 0:
+            if ensure_repo.get("returncode", 1) != 0:
                 result = {
                     "returncode": 1,
                     "workflow": workflow,
                     "step": "ensure_repo_exists",
-                    "stderr": ensure_res.get("stderr", "failed to ensure repo"),
-                    "detail": ensure_res,
+                    "stderr": ensure_repo.get("stderr", "failed to ensure repo"),
+                    "detail": ensure_repo,
                 }
                 # write_result_file/result_secret happens in finally
                 return 1

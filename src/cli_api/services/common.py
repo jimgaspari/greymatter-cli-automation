@@ -66,34 +66,31 @@ def create_workspace(prefix: str, workspace_name: Optional[str]) -> tuple[str, s
     return run_id, workspace_path
 
 def build_git_env(req, workspace_path: str) -> dict:
-    if req.clone.type == "ssh":
+    g = req.git
+    if g.type == "ssh":
         ssh_auth = prepare_ssh_auth(
             workspace_path=workspace_path,
-            ssh_private_key=req.clone.ssh_private_key,
-            known_hosts=req.clone.known_hosts,
-            strict_host_key_checking=req.clone.strict_host_key_checking,
+            ssh_private_key=g.ssh_private_key,
+            known_hosts=g.known_hosts,
+            strict_host_key_checking=g.strict_host_key_checking,
         )
         return ssh_auth.env
 
-    # HTTPS (whatever you renamed this to)
     return prepare_https_auth(
         workspace_path=workspace_path,
-        username=req.clone.username,
-        password=req.clone.password,
-        token=req.clone.token,
-        insecure_skip_tls_verify=getattr(req.clone, "insecure_skip_tls_verify", False),
+        username=g.username,
+        password=g.password,
+        token=g.token,
+        insecure_skip_tls_verify=g.insecure_skip_tls_verify,
     )
-
-
 
 def do_clone(req, run_id: str, git_env: dict, subdir: str = "repo") -> tuple[str, Dict[str, Any]]:
     dest_dir = f"{run_id}/{subdir}"
     dest_path, clone_result = clone_repo(
-        clone=req.clone,
+        git=req.git,
         dest_dir=dest_dir,
-        branch=req.git.base_branch,
-        depth=req.depth,
         env=git_env,
+        timeout_s=180,
     )
     step = {"name": "git_clone", **clone_result, "dest_path": dest_path}
     return dest_path, step

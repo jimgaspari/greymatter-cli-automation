@@ -2,7 +2,7 @@ from __future__ import annotations
 import os, tempfile
 from typing import Optional, Dict
 from pathlib import Path
-from ..schemas import  SshAuth
+from ..schemas import SshAuth
 
 def prepare_ssh_auth(
     *,

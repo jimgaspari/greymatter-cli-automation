@@ -3,7 +3,7 @@ from typing import Tuple, Dict, Optional, List
 import logging
 import requests
 
-from ..schemas import CloneSpec
+from ..schemas import GitConfig
 from ..runner import run_cmd
 from ..config import settings
 from ..paths import safe_work_path
@@ -70,32 +70,28 @@ def git_clone_ssh(
 
 
 def clone_repo(
-    *,
-    clone: CloneSpec,
-    dest_dir: str,
-    branch: Optional[str],
-    depth: int,
-    env: dict,
-    timeout_s: int = 180,
+    *, 
+    git: GitConfig, 
+    dest_dir: str, 
+    env: dict, 
+    timeout_s: int = 180
 ) -> Tuple[str, Dict]:
-    if clone.type == "ssh":
-        # NOTE: SSH auth already prepared in workflow and env contains GIT_SSH_COMMAND
+    if git.type == "ssh":
         return git_clone_ssh(
-            repo_ssh_url=clone.repo_url,
-            dest_dir=dest_dir,
-            branch=branch,
-            depth=depth,
-            env=env,
+            repo_ssh_url=git.repo_url, 
+            dest_dir=dest_dir, 
+            branch=git.base_branch, 
+            depth=git.depth, 
+            env=env, 
+            timeout_s=timeout_s
         )
-
-    # HTTPS auth already prepared in workflow OR clone is public
     return git_clone_https(
-        repo_https_url=clone.repo_url,
-        dest_dir=dest_dir,
-        branch=branch,
-        depth=depth,
-        env=env,
-        timeout_s=timeout_s,
+        repo_https_url=git.repo_url, 
+        dest_dir=dest_dir, 
+        branch=git.base_branch, 
+        depth=git.depth, 
+        env=env, 
+        timeout_s=timeout_s
     )
 
 

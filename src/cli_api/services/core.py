@@ -30,7 +30,7 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     response: Dict[str, Any] = {
         "returncode": 1,  # default to failure until we finish cleanly
         "workflow": "bootstrap-core",
-        "repo": req.clone.repo_url,
+        "repo": req.git.repo_url,
         "steps": [],
     }
 
@@ -125,20 +125,20 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     if k8s.create_repo_secret:
         secret_name = k8s.image_pull.secret_name.replace("image-pull", "core-repo")
 
-        if req.clone.type == "ssh":
+        if req.git.type == "ssh":
             repo_res = create_repo_secret(
                 namespace=ns,
                 secret_name=secret_name,
-                repo_url=req.clone.repo_url,
+                repo_url=req.git.repo_url,
                 branch=req.git.target_branch or req.git.base_branch,
                 auth_type="ssh",
-                known_hosts=req.clone.known_hosts,
-                ssh_key=req.clone.ssh_private_key,
+                known_hosts=req.git.known_hosts,
+                ssh_key=req.git.ssh_private_key,
             )
         else:
             # HTTPS (token preferred; password fallback)
-            http_password = req.clone.token or req.clone.password
-            http_username = req.clone.username or ("oauth2" if req.clone.token else "")
+            http_password = req.git.token or req.git.password
+            http_username = req.git.username or ("oauth2" if req.git.token else "")
 
             if not http_password:
                 return fail(
@@ -154,12 +154,12 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
             repo_res = create_repo_secret(
                 namespace=ns,
                 secret_name=secret_name,
-                repo_url=req.clone.repo_url,
+                repo_url=req.git.repo_url,
                 branch=req.git.target_branch or req.git.base_branch,
                 auth_type="https",
                 http_username=http_username,
                 http_password=http_password,
-                tls_insecure_verify=getattr(req.clone, "insecure_skip_tls_verify", False),
+                tls_insecure_verify=getattr(req.git, "insecure_skip_tls_verify", False),
             )
 
         response["steps"].append({"name": "kubectl_repo_secret", **repo_res})

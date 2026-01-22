@@ -18,7 +18,7 @@ from .common import (
 def bootstrap_tenant_impl(req) -> Dict[str, Any]:
     response: Dict[str, Any] = {
         "workflow": "bootstrap-tenant",
-        "repo": req.clone.repo_url,
+        "repo": req.git.repo_url,
         "tenant_name": req.tenant_name,
         "steps": [],
     }

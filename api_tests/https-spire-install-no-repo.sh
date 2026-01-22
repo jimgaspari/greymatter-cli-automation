@@ -21,17 +21,15 @@ jq -n \
   --arg author_name "Greymatter Automation" \
   --arg author_email "greymatter-bot@greymatter.io" \
   '{
-    clone: {
-      type: "https",
-      repo_url: $repo_url,
-      username: $git_user,
-      token: $api_key,
-      insecure_skip_tls_verify: true
-    },
     depth: 1,
     workspace: "test-1",
     namespace: $ns,
     git: {
+      type: "https",
+      repo_url: $repo_url,
+      username: $git_user,
+      token: $api_key,
+      insecure_skip_tls_verify: true,
       base_branch: $base_branch,
       create_branch_if_missing: true,
       push_branch_to_remote: true,
