@@ -22,6 +22,7 @@ from ..kubernetes.secrets import (
     create_namespace,
     create_image_pull_secret,
     create_repo_secret,
+    apply_edge_ingress_tls_secret
 )
 from ..kubernetes.manifests import apply_platform_operator_manifest
 from cli_api.prometheus.resolve import resolve_prometheus_endpoint_for_namespace
@@ -40,7 +41,7 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     run_id, workspace_path = create_workspace("core", req.workspace_name)
     response["workspace"] = {"name": run_id, "path": workspace_path}
 
-    logging.warning("Starting job %s", run_id)
+    logging.info("Starting job %s", run_id)
 
     git_env = build_git_env(req, workspace_path=workspace_path)
 
@@ -116,6 +117,35 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     response["steps"].append({"name": "kubectl_apply_prometheus_service", **prom_svc_res})
     if prom_svc_res.get("returncode", 1) != 0:
         return fail("kubectl apply prometheus service", prom_svc_res, response=response)
+
+    # Optional: create greymatter-edge-ingress TLS secret
+    edge = getattr(k8s, "edge_ingress_tls_secret", None)
+    if edge and getattr(edge, "enabled", False):
+        missing = []
+        if not getattr(edge, "tls_crt", None):
+            missing.append("tls_crt")
+        if not getattr(edge, "tls_key", None):
+            missing.append("tls_key")
+        if missing:
+            step = {
+                "returncode": 1,
+                "stderr": f"edge_ingress_tls_secret.enabled=true but missing: {', '.join(missing)}",
+            }
+            response["steps"].append({"name": "kubectl_apply_edge_ingress_tls_secret", **step})
+            return fail("apply edge ingress tls secret", step, response=response)
+
+        sec_res = apply_edge_ingress_tls_secret(
+            namespace=ns,
+            secret_name=edge.secret_name,
+            tls_crt_pem=edge.tls_crt,
+            tls_key_pem=edge.tls_key,
+            ca_crt_pem=getattr(edge, "ca_crt", None),
+        )
+
+        # IMPORTANT: do not include PEMs in response
+        response["steps"].append({"name": "kubectl_apply_edge_ingress_tls_secret", **sec_res})
+        if sec_res.get("returncode", 1) != 0:
+            return fail("apply edge ingress tls secret", sec_res, response=response)
 
     # Step: image pull secret
     img = k8s.image_pull
@@ -234,6 +264,7 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
             ],
             timeout_s=300,               # 5 minutes
             poll_interval_s=5,
+            min_active_targets=10
         )
 
         # Ensure it has a step name for your UI/step viewer
