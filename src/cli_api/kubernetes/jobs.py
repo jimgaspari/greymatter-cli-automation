@@ -8,9 +8,8 @@ import json
 import re
 import time
 import base64
-import logging
 
-from ..runner import run_cmd
+from cli_api.runner import run_cmd
 
 
 def _dns1123(name: str, max_len: int = 63) -> str:

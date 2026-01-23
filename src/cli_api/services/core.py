@@ -5,10 +5,10 @@ from pathlib import Path
 import logging
 from importlib import resources
 
-from ..cue.edit_config import update_mesh_metadata_name
-from ..runner import run_cmd
-from ..greymatter.core_argv import build_gm_create_platform_argv, build_gm_create_operator_argv
-from .common import (
+from cli_api.cue.edit_config import update_mesh_metadata_name
+from cli_api.runner import run_cmd
+from cli_api.greymatter.core_argv import build_gm_create_platform_argv, build_gm_create_operator_argv
+from cli_api.services.common import (
     create_workspace,
     build_git_env,
     do_clone,
@@ -19,16 +19,16 @@ from .common import (
     fail,
     check_existing_greymatter_repo
 )
-from ..kubernetes.secrets import (
+from cli_api.kubernetes.secrets import (
     create_namespace,
     create_image_pull_secret,
     create_repo_secret,
     apply_edge_ingress_tls_secret
 )
-from ..kubernetes.manifests import apply_platform_operator_manifest
+from cli_api.kubernetes.manifests import apply_platform_operator_manifest
 from cli_api.prometheus.resolve import resolve_prometheus_endpoint_for_namespace
 from cli_api.prometheus.targets import check_prometheus_targets
-from ..kubernetes.services import ensure_prometheus_service
+from cli_api.kubernetes.services import ensure_prometheus_service
 
 def load_spire_overrides_template() -> str:
     return resources.files("cli_api.cue.templates") \

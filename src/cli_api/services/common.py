@@ -4,9 +4,9 @@ from typing import Dict, Any, Optional
 from fastapi import HTTPException
 from pathlib import Path
 
-from ..config import settings
-from ..workflow_utils import make_run_id, ensure_workspace
-from ..git.git_cmd_shm import (
+from cli_api.config import settings
+from cli_api.workflow_utils import make_run_id, ensure_workspace
+from cli_api.git.git_cmd_shm import (
     prepare_ssh_auth,
     prepare_https_auth,
     clone_repo,

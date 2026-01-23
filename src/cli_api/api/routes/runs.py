@@ -2,14 +2,12 @@ from fastapi import APIRouter, Header, HTTPException
 from typing import Optional, Any, Dict
 import datetime as dt
 
-from ...config import settings
-from ...schemas import BootstrapCoreReq
-from ..deps import (
+from cli_api.api.deps import (
     require_token, 
     _jobs_namespace, 
 )
 
-from ...runner import run_cmd 
+from cli_api.runner import run_cmd 
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Dict, Optional
 
-from ..runner import run_cmd
+from cli_api.runner import run_cmd
 
 
 def git_has_changes(repo_path: str, env: Optional[dict] = None) -> bool:

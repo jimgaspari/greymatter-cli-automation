@@ -1,7 +1,7 @@
 from pathlib import Path
 import logging
 
-from ..runner import run_cmd
+from cli_api.runner import run_cmd
 
 def apply_platform_operator_manifest(repo_path: str, namespace: str, *, git_env: dict) -> dict:
     """

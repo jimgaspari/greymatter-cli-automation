@@ -2,10 +2,10 @@
 from fastapi import APIRouter, Header
 from typing import Optional
 
-from ..schemas import BootstrapCoreReq, BootstrapTenantReq
-from ..services.common import require_token
-from ..services.core import bootstrap_core_impl
-from ..services.tenant import bootstrap_tenant_impl
+from cli_api.schemas import BootstrapCoreReq, BootstrapTenantReq
+from cli_api.services.common import require_token
+from cli_api.services.core import bootstrap_core_impl
+from cli_api.services.tenant import bootstrap_tenant_impl
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 

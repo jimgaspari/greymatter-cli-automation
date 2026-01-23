@@ -5,10 +5,10 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic.config import ConfigDict
 from typing import Optional
 
-from .git import GitConfig
-from .greymatter import CreatePlatformOptions
-from .kubectl import KubernetesSecrets
-from .prometheus import PrometheusCheckConfig
+from cli_api.schemas.git import GitConfig
+from cli_api.schemas.greymatter import CreatePlatformOptions
+from cli_api.schemas.kubectl import KubernetesSecrets
+from cli_api.schemas.prometheus import PrometheusCheckConfig
 
 class WorkflowBaseReq(BaseModel):
     git: GitConfig

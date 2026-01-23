@@ -2,9 +2,9 @@ from fastapi import APIRouter, Header, HTTPException
 from typing import Optional, Any, Dict
 import datetime as dt
 
-from ...config import settings
-from ...schemas import BootstrapCoreReq
-from ..deps import (
+from cli_api.config import settings
+from cli_api.schemas import BootstrapCoreReq
+from cli_api.api.deps import (
     require_token, 
     _utc_run_id, 
     _jobs_namespace, 
@@ -12,11 +12,11 @@ from ..deps import (
     _runner_sa
 )
 
-from ...kubernetes.input_secrets import (
+from cli_api.kubernetes.input_secrets import (
     create_run_input_secret, 
     delete_run_input_secret
 )
-from ...kubernetes.jobs import ( 
+from cli_api.kubernetes.jobs import ( 
     create_workflow_job, 
     get_job_pod_name,
     get_pod_logs,
@@ -24,7 +24,7 @@ from ...kubernetes.jobs import (
     wait_for_job_completion,
     read_result_secret
 )
-from ...runner import run_cmd 
+from cli_api.runner import run_cmd 
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 

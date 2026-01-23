@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Any, Dict
 
-from ..runner import run_cmd
+from cli_api.runner import run_cmd
 
 
 def check_spire_installed() -> Dict[str, Any]:

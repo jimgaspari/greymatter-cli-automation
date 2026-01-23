@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from ..schemas import CreatePlatformOptions
+from cli_api.schemas import CreatePlatformOptions
 
 
 

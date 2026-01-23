@@ -7,7 +7,7 @@ import json
 import re
 from typing import Any, Dict, Optional
 
-from ..runner import run_cmd
+from cli_api.runner import run_cmd
 
 
 def _dns1123(name: str, max_len: int = 63) -> str:

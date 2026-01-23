@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Dict, Optional
 import logging
 
-from ..runner import run_cmd
+from cli_api.runner import run_cmd
 
 
 def ensure_branch(

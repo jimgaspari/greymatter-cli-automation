@@ -1,12 +1,11 @@
 from __future__ import annotations
-from typing import Tuple, Dict, Optional, List
+from typing import Tuple, Dict, Optional
 import logging
-import requests
 
-from ..schemas import GitConfig
-from ..runner import run_cmd
-from ..config import settings
-from ..paths import safe_work_path
+from cli_api.schemas import GitConfig
+from cli_api.runner import run_cmd
+from cli_api.config import settings
+from cli_api.paths import safe_work_path
 
 def git_clone_https(
     repo_https_url: str,

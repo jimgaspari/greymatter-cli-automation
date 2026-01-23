@@ -2,7 +2,7 @@ from fastapi import Header, HTTPException
 from typing import Optional
 import datetime as dt
 
-from ..config import settings
+from cli_api.config import settings
 
 def require_token(x_api_token: Optional[str]):
     if not settings.api_token:

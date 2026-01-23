@@ -1,8 +1,8 @@
 from __future__ import annotations
-import os, tempfile
+import os
 from typing import Optional, Dict
 from pathlib import Path
-from ..schemas import SshAuth
+from cli_api.schemas import SshAuth
 
 def prepare_ssh_auth(
     *,

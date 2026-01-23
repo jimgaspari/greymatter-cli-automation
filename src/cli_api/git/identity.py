@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Dict
 
-from ..runner import run_cmd
+from cli_api.runner import run_cmd
 
 def ensure_git_identity(
     repo_path: str,
