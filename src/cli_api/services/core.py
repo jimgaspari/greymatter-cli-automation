@@ -24,6 +24,9 @@ from ..kubernetes.secrets import (
     create_repo_secret,
 )
 from ..kubernetes.manifests import apply_platform_operator_manifest
+from cli_api.prometheus.resolve import resolve_prometheus_endpoint_for_namespace
+from cli_api.prometheus.targets import check_prometheus_targets
+from ..kubernetes.services import ensure_prometheus_service
 
 
 def bootstrap_core_impl(req) -> Dict[str, Any]:
@@ -108,6 +111,12 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     if ns_res["returncode"] != 0:
         return fail("kubectl create namespace", ns_res, response=response)
 
+    # Step: ensure prometheus service exists (ClusterIP)
+    prom_svc_res = ensure_prometheus_service(namespace=ns)
+    response["steps"].append({"name": "kubectl_apply_prometheus_service", **prom_svc_res})
+    if prom_svc_res.get("returncode", 1) != 0:
+        return fail("kubectl apply prometheus service", prom_svc_res, response=response)
+
     # Step: image pull secret
     img = k8s.image_pull
     img_res = create_image_pull_secret(
@@ -178,10 +187,61 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     if operator_apply.get("returncode", 1) != 0:
         return fail("apply platform operator manifest", operator_apply, response=response)
 
-    operator_apply = apply_platform_operator_manifest(dest_path, ns, git_env=git_env)
-    response["steps"].append(operator_apply)
-    if operator_apply.get("returncode", 1) != 0:
-        fail("greymatter create operator", operator_apply)
+        # --- Prometheus targets check (late/post-deploy) ---
+    pc = getattr(req, "prometheus_check", None)
+    if pc and getattr(pc, "enabled", False):
+        # Resolve the Prometheus endpoint based on the Greymatter namespace (ns)
+        endpoint, meta = resolve_prometheus_endpoint_for_namespace(
+            gm_namespace=ns,
+            scheme=getattr(pc, "scheme", "http"),
+            port=getattr(pc, "port", 9090),
+            service_name=getattr(pc, "service_name", "prometheus"),
+            path_prefix=getattr(pc, "path_prefix", ""),
+            probe=bool(getattr(pc, "probe", False)),
+            probe_timeout_s=float(getattr(pc, "probe_timeout_s", 2.0)),
+        )
+
+        if not endpoint:
+            resolve_step = {
+                "name": "prometheus_resolve_endpoint",
+                "returncode": 1,
+                "stderr": f"Could not resolve a reachable Prometheus /api/v1/targets endpoint in namespace {ns}",
+                "namespace": ns,
+                **meta,
+            }
+            response["steps"].append(resolve_step)
+            return fail("prometheus resolve endpoint", resolve_step, response=response)
+
+        resolve_step = {
+            "name": "prometheus_resolve_endpoint",
+            "returncode": 0,
+            "stdout": f"Resolved Prometheus endpoint: {endpoint.url}",
+            "namespace": ns,
+            "service_name": endpoint.service_name,
+            "scheme": endpoint.scheme,
+            "port": endpoint.port,
+            "path_prefix": endpoint.path_prefix,
+            **meta,
+        }
+        response["steps"].append(resolve_step)
+
+        targets_step = check_prometheus_targets(
+            namespace=ns,
+            service_name="prometheus",   # or your known service
+            require_all_up=True,
+            job_allowlist=[
+                "gm-stats-kubernetes"
+            ],
+            timeout_s=300,               # 5 minutes
+            poll_interval_s=5,
+        )
+
+        # Ensure it has a step name for your UI/step viewer
+        targets_step.setdefault("name", "prometheus_targets_check")
+        response["steps"].append(targets_step)
+
+        if targets_step.get("returncode", 1) != 0:
+            return fail("prometheus targets check", targets_step, response=response)
 
     response["artifacts"] = {
         ".greymatter": {"path": str(gm_file), "size_bytes": gm_file.stat().st_size}

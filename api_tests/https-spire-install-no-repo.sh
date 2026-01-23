@@ -48,6 +48,7 @@ jq -n \
       },
       create_repo_secret: true
     },
+    prometheus_check: {enabled: true},
     create_platform: {
       display_name: "Jims Mesh",
       mesh_name: "spire-mesh",
