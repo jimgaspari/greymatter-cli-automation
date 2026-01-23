@@ -1,0 +1,304 @@
+<!-- src/cli_api/web/index.html (updated: adds Kubernetes secret inputs) -->
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Greymatter Bootstrap Demo</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+</head>
+
+<body>
+    <header>
+        <h1>Greymatter Bootstrap Demo</h1>
+        <p>Static UI for testing/demo. Primary usage should be via the API.</p>
+    </header>
+
+    <section class="card">
+        <h2>Auth</h2>
+        <label>
+            X-API-Token
+            <input id="apiToken" type="password" placeholder="devtoken (if enabled)" />
+        </label>
+    </section>
+
+    <section class="card">
+        <h2>Clone</h2>
+
+        <div class="row">
+            <label>
+                Method
+                <select id="cloneType">
+                    <option value="ssh">SSH</option>
+                    <option value="https">HTTPS</option>
+                </select>
+            </label>
+
+            <label>
+                Repo URL
+                <input id="repoUrl" type="text" placeholder="git@host:owner/repo.git OR https://host/owner/repo.git" />
+            </label>
+        </div>
+
+        <div class="row">
+            <label>
+                Depth
+                <input id="depth" type="number" value="1" min="0" />
+            </label>
+
+            <label>
+                Workspace name (optional)
+                <input id="workspaceName" type="text" placeholder="core-demo-001 (leave blank to auto-generate)" />
+            </label>
+        </div>
+
+        <h3>Branch behavior</h3>
+        <div class="row">
+            <label>
+                Base branch (must exist)
+                <input id="baseBranch" type="text" value="main" />
+            </label>
+
+            <label>
+                Target branch (optional)
+                <input id="targetBranch" type="text" placeholder="test1" />
+            </label>
+        </div>
+
+        <div class="row">
+            <label class="checkbox">
+                <input id="createBranchIfMissing" type="checkbox" checked />
+                Create branch if missing
+            </label>
+
+            <label class="checkbox">
+                <input id="pushBranchToRemote" type="checkbox" />
+                Push branch to remote (create remote branch)
+            </label>
+
+            <label class="checkbox">
+                <input id="pushChanges" type="checkbox" />
+                Push changes (commit + push after greymatter)
+            </label>
+        </div>
+
+        <h3>Git author identity (for commits)</h3>
+        <div class="row">
+            <label>
+                Author name
+                <input id="gitAuthorName" type="text" value="Greymatter Automation" />
+            </label>
+
+            <label>
+                Author email
+                <input id="gitAuthorEmail" type="email" value="greymatter-bot@greymatter.io" />
+            </label>
+        </div>
+
+        <div id="sshFields">
+            <label>
+                SSH private key (base64)
+                <textarea id="sshKey" placeholder="paste key contents"></textarea>
+            </label>
+
+            <label>
+                known_hosts (raw)
+                <textarea id="knownHosts" placeholder="paste known_hosts contents"></textarea>
+            </label>
+
+            <label class="checkbox">
+                <input id="strictHostKeyChecking" type="checkbox" checked />
+                Strict host key checking
+            </label>
+        </div>
+
+        <div id="httpsFields" style="display:none;">
+            <div class="row">
+                <label>
+                    Username (optional)
+                    <input id="httpsUsername" type="text" placeholder="e.g. jimgaspari or oauth2" />
+                </label>
+
+                <label>
+                    Token (optional)
+                    <input id="httpsToken" type="password" placeholder="PAT/token (if repo is private)" />
+                </label>
+            </div>
+
+            <label>
+                Password (optional, avoid if using token)
+                <input id="httpsPassword" type="password" placeholder="basic auth password" />
+            </label>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Kubernetes Secrets</h2>
+        <p>These will run via <code>kubectl</code> in the workflow.</p>
+
+        <div class="row">
+            <label>
+                Namespace
+                <input id="k8sNamespace" type="text" placeholder="greymatter" />
+            </label>
+
+            <label class="checkbox">
+                <input id="createRepoSecret" type="checkbox" checked />
+                Create greymatter-core-repo secret (SSH only)
+            </label>
+        </div>
+
+        <h3>Image Pull Secret</h3>
+        <div class="row">
+            <label>
+                Docker server
+                <input id="dockerServer" type="text" value="oci.download.greymatter.io" />
+            </label>
+
+            <label>
+                Secret name
+                <input id="imagePullSecretName" type="text" value="greymatter-image-pull" />
+            </label>
+        </div>
+
+        <div class="row">
+            <label>
+                Docker username
+                <input id="dockerUsername" type="text" placeholder="DOCKER_USERNAME" />
+            </label>
+
+            <label>
+                Docker password
+                <input id="dockerPassword" type="password" placeholder="DOCKER_PASSWORD" />
+            </label>
+        </div>
+
+        <h3>Repo Secret</h3>
+        <div class="row">
+            <label>
+                Repo secret name
+                <input id="repoSecretName" type="text" value="greymatter-core-repo" />
+            </label>
+
+            <label>
+                Repo branch for secret (defaults to target/base)
+                <input id="repoSecretBranch" type="text" placeholder="(leave blank)" />
+            </label>
+        </div>
+
+        <p class="hint">
+            Repo secret uses your Clone inputs:
+            <code>repo_url</code>, <code>known_hosts</code>, and <code>ssh_private_key</code>.
+            If you select HTTPS clone, repo secret creation is skipped.
+        </p>
+    </section>
+
+    <section class="card">
+        <h2>Core Bootstrap Options</h2>
+        <p>These map to <code>greymatter create platform</code> flags.</p>
+
+        <div class="row">
+            <label>
+                Display name
+                <input id="displayName" type="text" placeholder="Greymatter Mesh" />
+            </label>
+
+            <label>
+                Namespace
+                <input id="namespace" type="text" placeholder="greymatter" />
+            </label>
+        </div>
+
+        <div class="row">
+            <label>
+                Security (plaintext | spire | pki)
+                <input id="security" type="text" placeholder="spire" />
+            </label>
+
+            <label>
+                OpenShift
+                <select id="openshift">
+                    <option value="false" selected>false</option>
+                    <option value="true">true</option>
+                </select>
+            </label>
+        </div>
+
+        <div class="row">
+            <label>
+                Image repository
+                <input id="imageRepository" type="text" placeholder="oci.download.greymatter.io" />
+            </label>
+
+            <label>
+                Image pull secret
+                <input id="imagePullSecret" type="text" placeholder="greymatter-image-pull" />
+            </label>
+        </div>
+
+        <div class="row">
+            <label>
+                Spire namespace
+                <input id="spireNamespace" type="text" placeholder="spire" />
+            </label>
+
+            <label class="checkbox">
+                <input id="noManagedSpire" type="checkbox" />
+                --no-managed-spire
+            </label>
+        </div>
+
+        <div class="row">
+            <label>
+                Prometheus address (host:port)
+                <input id="prometheusAddress" type="text" placeholder="prometheus.monitoring.svc:9090" />
+            </label>
+
+            <label>
+                Elasticsearch address (host:port)
+                <input id="elasticsearchAddress" type="text" placeholder="elasticsearch.monitoring.svc:9200" />
+            </label>
+        </div>
+
+        <label class="checkbox">
+            <input id="noElasticsearchTlsVerify" type="checkbox" />
+            --no-elasticsearch-tls-verify
+        </label>
+
+        <div class="row">
+            <label>
+                Tenant namespaces (comma-separated)
+                <input id="tenantNamespaces" type="text" placeholder="tenant-a,tenant-b" />
+            </label>
+
+            <label>
+                PKI cert secret (if security=pki)
+                <input id="pkiCert" type="text" placeholder="(edge-cert)" />
+            </label>
+        </div>
+
+        <label class="checkbox">
+            <input id="noGitopsFips" type="checkbox" />
+            --no-gitops-fips
+        </label>
+    </section>
+
+    <section class="card">
+        <h2>Run</h2>
+        <div class="row">
+            <button id="runCore">Bootstrap Core</button>
+            <input id="tenantName" type="text" placeholder="tenant name (for tenant bootstrap)" />
+            <button id="runTenant">Bootstrap Tenant</button>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Result</h2>
+        <pre id="result">(no run yet)</pre>
+    </section>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
