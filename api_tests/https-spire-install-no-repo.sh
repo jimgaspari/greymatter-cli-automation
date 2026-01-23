@@ -22,6 +22,8 @@ jq -n \
   --arg docker_pass "$DOCKER_PASSWORD" \
   --arg author_name "Greymatter Automation" \
   --arg author_email "greymatter-bot@greymatter.io" \
+  --rawfile tls_key /home/jim/Working/local/test_certs/server.key \
+  --rawfile tls_crt /home/jim/Working/local/test_certs/server.crt \
   '{
     depth: 1,
     workspace: "test-1",
@@ -39,14 +41,19 @@ jq -n \
       author_name: $author_name,
       author_email: $author_email
     },
-    kubectl: { 
+    kubernetes: { 
       image_pull: {
         docker_server: $docker_server,
         docker_username: $docker_user,
         docker_password: $docker_pass,
         secret_name: "greymatter-image-pull"
       },
-      create_repo_secret: true
+      create_repo_secret: true,
+      edge_ingress_tls_secret: {
+        enabled: true,
+        tls_crt: $tls_crt,
+        tls_key: $tls_key,
+      },
     },
     prometheus_check: {enabled: true},
     create_platform: {

@@ -18,7 +18,7 @@ def git_clone_https(
 ) -> tuple[str, dict]:
     dest_path = safe_work_path(settings.workdir, dest_dir)
 
-    logging.warning("Cloning Git Repo %s", repo_https_url)
+    logging.info("Cloning Git Repo %s", repo_https_url)
 
     argv = ["git", "clone"]
     if depth:
@@ -40,7 +40,7 @@ def git_clone_ssh(
 ) -> tuple[str, dict]:
     dest_path = safe_work_path(settings.workdir, dest_dir)
 
-    logging.warning("Cloning Git Repo %s", repo_ssh_url)
+    logging.info("Cloning Git Repo %s", repo_ssh_url)
 
     # Build base clone args
     base_argv = ["git", "clone"]
@@ -58,7 +58,7 @@ def git_clone_ssh(
         # If branch doesn't exist, fall back to default branch clone
         stderr = (res.get("stderr") or "")
         if "Remote branch" in stderr and "not found" in stderr:
-            logging.warning("Branch %s not found; retrying clone without --branch", branch)
+            logging.info("Branch %s not found; retrying clone without --branch", branch)
         else:
             # Not a missing-branch error → return the failure
             return dest_path, res

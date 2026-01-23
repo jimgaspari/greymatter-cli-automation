@@ -257,12 +257,9 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
 
         targets_step = check_prometheus_targets(
             namespace=ns,
-            service_name="prometheus",   # or your known service
+            service_name="prometheus",   
             require_all_up=True,
-            job_allowlist=[
-                "gm-stats-kubernetes"
-            ],
-            timeout_s=300,               # 5 minutes
+            timeout_s=300,               
             poll_interval_s=5,
             min_active_targets=10
         )

@@ -10,7 +10,7 @@ def apply_platform_operator_manifest(repo_path: str, namespace: str, *, git_env:
     # Adjust if the file lives somewhere else in the repo
     manifest = Path(repo_path) / "platform-operator.yaml"
     if not manifest.exists():
-        logging.warning("platform-operator.yaml not found; generating via greymatter CLI")
+        logging.info("platform-operator.yaml not found; generating via greymatter CLI")
 
         gen = run_cmd(
             ["greymatter", "create", "operator"],
@@ -36,7 +36,7 @@ def apply_platform_operator_manifest(repo_path: str, namespace: str, *, git_env:
                 "stderr": "greymatter create operator succeeded but platform-operator.yaml was not created",
             }
 
-    logging.warning("Applying platform operator manifest: %s", str(manifest))
+    logging.info("Applying platform operator manifest: %s", str(manifest))
 
     # If your manifest is namespace-scoped resources, -n is fine.
     # If it contains cluster-scoped resources (CRDs, ClusterRole, etc),

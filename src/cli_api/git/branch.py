@@ -41,7 +41,7 @@ def ensure_branch(
     ).get("returncode", 1) == 0
 
     if remote_exists:
-        logging.warning("Remote branch exists: %s", target_branch)
+        logging.info("Remote branch exists: %s", target_branch)
 
         # Fetch the exact branch ref so origin/<target_branch> is guaranteed to exist locally
         run_cmd(
@@ -69,7 +69,7 @@ def ensure_branch(
         return co
 
     if local_exists:
-        logging.warning("Remote branch missing; using local branch: %s", target_branch)
+        logging.info("Remote branch missing; using local branch: %s", target_branch)
         return run_cmd(
             ["git", "checkout", target_branch],
             cwd=repo_path,
@@ -78,7 +78,7 @@ def ensure_branch(
         )
 
     # Neither remote nor local exists: create from base
-    logging.warning("Branch %s does not exist; creating from base %s", target_branch, base_branch)
+    logging.info("Branch %s does not exist; creating from base %s", target_branch, base_branch)
 
     run_cmd(["git", "fetch", "origin", base_branch], cwd=repo_path, env=git_env, check=False)
 

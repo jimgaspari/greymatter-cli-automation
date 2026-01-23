@@ -13,6 +13,11 @@ def _join_prefix(prefix: str, path: str) -> str:
     p = p.rstrip("/")
     return f"{p}{path}"
 
+import time
+import requests
+from typing import Dict, Any, Optional, List
+
+
 def check_prometheus_targets(
     *,
     namespace: str,
@@ -22,13 +27,18 @@ def check_prometheus_targets(
     path_prefix: str = "",
     require_all_up: bool = True,
     job_allowlist: Optional[List[str]] = None,
-    timeout_s: float = 300.0,        # TOTAL wait time (5 min default)
-    poll_interval_s: float = 5.0,    # how often to re-check
-    request_timeout_s: float = 10.0, # per-HTTP request timeout
+
+    # TOTAL wait budget
+    timeout_s: float = 300.0,
+
+    # Polling controls
+    poll_interval_s: float = 5.0,
+    request_timeout_s: float = 10.0,
+
+    # NEW: wait conditions
+    min_active_targets: int = 1,             # wait until Prometheus returns at least this many active targets
+    require_allowlist_match: bool = True,    # if allowlist provided, require it to match at least one active target
 ) -> Dict[str, Any]:
-    """
-    Polls Prometheus /api/v1/targets until required targets are up or timeout expires.
-    """
     host = f"{service_name}.{namespace}.svc"
     path = _join_prefix(path_prefix, "/api/v1/targets")
     url = f"{scheme}://{host}:{port}{path}"
@@ -41,13 +51,20 @@ def check_prometheus_targets(
         "service_name": service_name,
         "timeout_s": timeout_s,
         "poll_interval_s": poll_interval_s,
+        "min_active_targets": min_active_targets,
     }
+    if job_allowlist:
+        step["job_allowlist"] = job_allowlist
+        step["require_allowlist_match"] = require_allowlist_match
 
     deadline = time.monotonic() + timeout_s
     attempts = 0
+
     last_error: Optional[str] = None
     last_counts: Optional[Dict[str, int]] = None
     last_down_summary: Optional[List[Dict[str, Any]]] = None
+    last_seen_jobs: Optional[List[str]] = None
+    last_http_status: Optional[int] = None
 
     def job_name(t: Dict[str, Any]) -> str:
         labels = t.get("labels") or {}
@@ -59,7 +76,7 @@ def check_prometheus_targets(
         attempts += 1
         try:
             r = requests.get(url, timeout=request_timeout_s)
-            step["http_status"] = r.status_code
+            last_http_status = r.status_code
             r.raise_for_status()
             data = r.json()
         except Exception as e:
@@ -67,8 +84,9 @@ def check_prometheus_targets(
             time.sleep(poll_interval_s)
             continue
 
+        # Expect: {status:"success", data:{activeTargets:[...]}}
         if not isinstance(data, dict) or data.get("status") != "success":
-            last_error = f"Prometheus response not successful: status={data.get('status')}"
+            last_error = f"Prometheus response not successful: status={data.get('status') if isinstance(data, dict) else type(data)}"
             time.sleep(poll_interval_s)
             continue
 
@@ -79,6 +97,23 @@ def check_prometheus_targets(
             time.sleep(poll_interval_s)
             continue
 
+        # NEW: Wait until Prometheus is actually returning active targets
+        if len(active) < min_active_targets:
+            last_error = f"Waiting for Prometheus activeTargets >= {min_active_targets} (currently {len(active)})"
+            last_counts = {"active_total": len(active), "considered": 0, "up": 0, "down": 0}
+            time.sleep(poll_interval_s)
+            continue
+
+        # Compute seen jobs to help debugging / allowlist tuning
+        seen_jobs = []
+        for t in active[:50]:
+            if isinstance(t, dict):
+                j = job_name(t)
+                if j:
+                    seen_jobs.append(j)
+        last_seen_jobs = sorted({j for j in seen_jobs if j})
+
+        # Apply allowlist filter
         considered: List[Dict[str, Any]] = []
         for t in active:
             if not isinstance(t, dict):
@@ -88,6 +123,16 @@ def check_prometheus_targets(
                 if j not in job_allowlist:
                     continue
             considered.append(t)
+
+        # NEW: If allowlist provided, optionally wait until it matches something
+        if job_allowlist and require_allowlist_match and len(considered) == 0:
+            last_error = (
+                "Waiting for Prometheus targets that match job_allowlist "
+                f"(activeTargets={len(active)}, matched=0, seen_jobs={last_seen_jobs})"
+            )
+            last_counts = {"active_total": len(active), "considered": 0, "up": 0, "down": 0}
+            time.sleep(poll_interval_s)
+            continue
 
         up = []
         down = []
@@ -105,7 +150,7 @@ def check_prometheus_targets(
             "down": len(down),
         }
 
-        # summarize down targets (bounded)
+        # Summarize down targets (bounded)
         down_summary = []
         for t in down[:50]:
             labels = t.get("labels") or {}
@@ -120,30 +165,31 @@ def check_prometheus_targets(
             )
         last_down_summary = down_summary
 
+        # Success condition
         if not require_all_up or len(down) == 0:
-            step["stdout"] = (
-                f"All Prometheus targets are up after {attempts} attempt(s)"
-                if require_all_up
-                else "Prometheus targets check passed"
-            )
             step["returncode"] = 0
+            step["stdout"] = f"Targets healthy after {attempts} attempt(s)"
             step["attempts"] = attempts
+            step["http_status"] = last_http_status
             step["counts"] = last_counts
+            if last_seen_jobs is not None:
+                step["seen_jobs"] = last_seen_jobs
             return step
 
-        # Not ready yet → wait and retry
+        # Not healthy yet -> keep waiting
+        last_error = f"Waiting for all targets to be up (down={len(down)})"
         time.sleep(poll_interval_s)
 
-    # --- timeout ---
-    step["stderr"] = (
-        last_error
-        or f"Timed out waiting for Prometheus targets to become healthy after {attempts} attempt(s)"
-    )
-    step["attempts"] = attempts
-    if last_counts:
-        step["counts"] = last_counts
-    if last_down_summary:
-        step["down_targets"] = last_down_summary
-
+    # Timed out
     step["returncode"] = 1
+    step["attempts"] = attempts
+    if last_http_status is not None:
+        step["http_status"] = last_http_status
+    step["stderr"] = last_error or f"Timed out after {attempts} attempt(s)"
+    if last_counts is not None:
+        step["counts"] = last_counts
+    if last_down_summary is not None:
+        step["down_targets"] = last_down_summary
+    if last_seen_jobs is not None:
+        step["seen_jobs"] = last_seen_jobs
     return step
