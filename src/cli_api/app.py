@@ -6,7 +6,14 @@ from pathlib import Path
 from cli_api.api.router import api_router
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Greymatter Bootstrap", version="0.1.0")
+    app = FastAPI(
+        title="Greymatter Bootstrap",
+        version="0.1.0",
+        description="Orchestrates Greymatter bootstrap workflows via Kubernetes Jobs.",
+        docs_url="/api/swagger",
+        redoc_url="/api/redoc",
+        openapi_url="/api/openapi.json",
+    )
 
     # API lives under /api
     app.include_router(api_router, prefix="/api")

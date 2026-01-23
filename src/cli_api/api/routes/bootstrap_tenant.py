@@ -23,7 +23,7 @@ from cli_api.runner import run_cmd
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
-@router.post("/workflows/bootstrap-tenant")
+@router.post("/bootstrap-tenant")
 def api_bootstrap_tenant(req: BootstrapTenantReq, x_api_token: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     require_token(x_api_token)
 
