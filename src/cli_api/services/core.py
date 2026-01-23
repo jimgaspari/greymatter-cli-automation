@@ -22,8 +22,12 @@ from ..kubernetes.secrets import (
     create_namespace,
     create_image_pull_secret,
     create_repo_secret,
+    apply_edge_ingress_tls_secret
 )
 from ..kubernetes.manifests import apply_platform_operator_manifest
+from cli_api.prometheus.resolve import resolve_prometheus_endpoint_for_namespace
+from cli_api.prometheus.targets import check_prometheus_targets
+from ..kubernetes.services import ensure_prometheus_service
 
 
 def bootstrap_core_impl(req) -> Dict[str, Any]:
@@ -37,7 +41,7 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     run_id, workspace_path = create_workspace("core", req.workspace_name)
     response["workspace"] = {"name": run_id, "path": workspace_path}
 
-    logging.warning("Starting job %s", run_id)
+    logging.info("Starting job %s", run_id)
 
     git_env = build_git_env(req, workspace_path=workspace_path)
 
@@ -107,6 +111,41 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     response["steps"].append({"name": "kubectl_create_namespace", **ns_res})
     if ns_res["returncode"] != 0:
         return fail("kubectl create namespace", ns_res, response=response)
+
+    # Step: ensure prometheus service exists (ClusterIP)
+    prom_svc_res = ensure_prometheus_service(namespace=ns)
+    response["steps"].append({"name": "kubectl_apply_prometheus_service", **prom_svc_res})
+    if prom_svc_res.get("returncode", 1) != 0:
+        return fail("kubectl apply prometheus service", prom_svc_res, response=response)
+
+    # Optional: create greymatter-edge-ingress TLS secret
+    edge = getattr(k8s, "edge_ingress_tls_secret", None)
+    if edge and getattr(edge, "enabled", False):
+        missing = []
+        if not getattr(edge, "tls_crt", None):
+            missing.append("tls_crt")
+        if not getattr(edge, "tls_key", None):
+            missing.append("tls_key")
+        if missing:
+            step = {
+                "returncode": 1,
+                "stderr": f"edge_ingress_tls_secret.enabled=true but missing: {', '.join(missing)}",
+            }
+            response["steps"].append({"name": "kubectl_apply_edge_ingress_tls_secret", **step})
+            return fail("apply edge ingress tls secret", step, response=response)
+
+        sec_res = apply_edge_ingress_tls_secret(
+            namespace=ns,
+            secret_name=edge.secret_name,
+            tls_crt_pem=edge.tls_crt,
+            tls_key_pem=edge.tls_key,
+            ca_crt_pem=getattr(edge, "ca_crt", None),
+        )
+
+        # IMPORTANT: do not include PEMs in response
+        response["steps"].append({"name": "kubectl_apply_edge_ingress_tls_secret", **sec_res})
+        if sec_res.get("returncode", 1) != 0:
+            return fail("apply edge ingress tls secret", sec_res, response=response)
 
     # Step: image pull secret
     img = k8s.image_pull
@@ -178,10 +217,59 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     if operator_apply.get("returncode", 1) != 0:
         return fail("apply platform operator manifest", operator_apply, response=response)
 
-    operator_apply = apply_platform_operator_manifest(dest_path, ns, git_env=git_env)
-    response["steps"].append(operator_apply)
-    if operator_apply.get("returncode", 1) != 0:
-        fail("greymatter create operator", operator_apply)
+        # --- Prometheus targets check (late/post-deploy) ---
+    pc = getattr(req, "prometheus_check", None)
+    if pc and getattr(pc, "enabled", False):
+        # Resolve the Prometheus endpoint based on the Greymatter namespace (ns)
+        endpoint, meta = resolve_prometheus_endpoint_for_namespace(
+            gm_namespace=ns,
+            scheme=getattr(pc, "scheme", "http"),
+            port=getattr(pc, "port", 9090),
+            service_name=getattr(pc, "service_name", "prometheus"),
+            path_prefix=getattr(pc, "path_prefix", ""),
+            probe=bool(getattr(pc, "probe", False)),
+            probe_timeout_s=float(getattr(pc, "probe_timeout_s", 2.0)),
+        )
+
+        if not endpoint:
+            resolve_step = {
+                "name": "prometheus_resolve_endpoint",
+                "returncode": 1,
+                "stderr": f"Could not resolve a reachable Prometheus /api/v1/targets endpoint in namespace {ns}",
+                "namespace": ns,
+                **meta,
+            }
+            response["steps"].append(resolve_step)
+            return fail("prometheus resolve endpoint", resolve_step, response=response)
+
+        resolve_step = {
+            "name": "prometheus_resolve_endpoint",
+            "returncode": 0,
+            "stdout": f"Resolved Prometheus endpoint: {endpoint.url}",
+            "namespace": ns,
+            "service_name": endpoint.service_name,
+            "scheme": endpoint.scheme,
+            "port": endpoint.port,
+            "path_prefix": endpoint.path_prefix,
+            **meta,
+        }
+        response["steps"].append(resolve_step)
+
+        targets_step = check_prometheus_targets(
+            namespace=ns,
+            service_name="prometheus",   
+            require_all_up=True,
+            timeout_s=300,               
+            poll_interval_s=5,
+            min_active_targets=10
+        )
+
+        # Ensure it has a step name for your UI/step viewer
+        targets_step.setdefault("name", "prometheus_targets_check")
+        response["steps"].append(targets_step)
+
+        if targets_step.get("returncode", 1) != 0:
+            return fail("prometheus targets check", targets_step, response=response)
 
     response["artifacts"] = {
         ".greymatter": {"path": str(gm_file), "size_bytes": gm_file.stat().st_size}

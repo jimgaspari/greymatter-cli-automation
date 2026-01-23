@@ -1,9 +1,10 @@
 from __future__ import annotations
-from typing import Dict
+from typing import Dict, Any, Optional
 from pathlib import Path
 import tempfile
+import json
 
-from ..runner import run_cmd
+from cli_api.runner import run_cmd
 
 def create_namespace(namespace: str) -> Dict:
     ns_yaml = run_cmd(
@@ -123,3 +124,49 @@ def create_repo_secret(
             return {"step": "kubectl create repo secret (ssh)", **secret_yaml}
 
         return _apply_from_yaml(secret_yaml.get("stdout", ""), "kubectl apply repo secret (ssh)")
+
+def apply_edge_ingress_tls_secret(
+    *,
+    namespace: str,
+    secret_name: str,
+    tls_crt_pem: str,
+    tls_key_pem: str,
+    ca_crt_pem: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Creates/updates a Kubernetes TLS secret with required tls.crt/tls.key and optional ca.crt.
+    Uses stringData so we don't have to base64 encode and so kubectl does it for us.
+    """
+    if not tls_crt_pem or not tls_key_pem:
+        return {"returncode": 1, "stderr": "tls.crt and tls.key are required"}
+
+    string_data: Dict[str, str] = {
+        "tls.crt": tls_crt_pem,
+        "tls.key": tls_key_pem,
+    }
+    if ca_crt_pem:
+        string_data["ca.crt"] = ca_crt_pem
+
+    manifest: Dict[str, Any] = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": secret_name,
+            "namespace": namespace,
+            "labels": {
+                "app": "cli-api",
+                "cli-api.greymatter.io/kind": "edge-ingress-tls",
+            },
+        },
+        # TLS secret type expects tls.crt and tls.key; extra keys like ca.crt are allowed
+        "type": "kubernetes.io/tls",
+        "stringData": string_data,
+    }
+
+    # IMPORTANT: Never include secret contents in logs/response (run_cmd returns stdout/stderr only)
+    return run_cmd(
+        ["kubectl", "apply", "-f", "-"],
+        input=json.dumps(manifest),
+        check=False,
+        timeout_s=30,
+    )

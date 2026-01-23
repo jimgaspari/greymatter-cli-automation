@@ -30,7 +30,7 @@ def write_result_file(result: Dict[str, Any]) -> None:
     p = Path(RESULT_PATH)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    logging.warning("Wrote result file: %s (%d bytes)", str(p), p.stat().st_size)
+    logging.info("Wrote result file: %s (%d bytes)", str(p), p.stat().st_size)
 
 
 def log_result_summary(result: Dict[str, Any]) -> None:
@@ -38,7 +38,7 @@ def log_result_summary(result: Dict[str, Any]) -> None:
     step = result.get("step") or result.get("workflow_step") or "unknown"
     msg = result.get("stderr") or ""
     if rc == 0:
-        logging.warning("Job succeeded. step=%s", step)
+        logging.info("Job succeeded. step=%s", step)
     else:
         logging.error("Job failed. step=%s stderr=%s", step, msg)
 
@@ -101,7 +101,7 @@ def main() -> int:
     run_id = os.getenv("WORKFLOW_RUN_ID", "").strip()
     workflow = os.getenv("WORKFLOW_NAME", "bootstrap-core").strip().lower()
 
-    logging.warning("Job runner starting. run_id=%s workflow=%s payload_path=%s", run_id, workflow, payload_path)
+    logging.info("Job runner starting. run_id=%s workflow=%s payload_path=%s", run_id, workflow, payload_path)
 
     # We ALWAYS produce a result object and ALWAYS persist it
     result: Dict[str, Any] = {
@@ -229,11 +229,11 @@ def main() -> int:
                 if sec_res.get("returncode", 1) != 0:
                     logging.error("Failed to write result secret: %s", sec_res.get("stderr", ""))
                 else:
-                    logging.warning("Wrote result secret: cli-api-result-%s", run_id)
+                    logging.info("Wrote result secret: cli-api-result-%s", run_id)
             except Exception:
                 logging.exception("Failed to write result secret")
         else:
-            logging.warning("WORKFLOW_RUN_ID is empty; skipping result secret write")
+            logging.info("WORKFLOW_RUN_ID is empty; skipping result secret write")
 
         log_result_summary(result)
 
