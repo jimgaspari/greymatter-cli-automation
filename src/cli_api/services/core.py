@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, Any
 from pathlib import Path
 import logging
+from importlib import resources
 
 from ..cue.edit_config import update_mesh_metadata_name
 from ..runner import run_cmd
@@ -29,6 +30,10 @@ from cli_api.prometheus.resolve import resolve_prometheus_endpoint_for_namespace
 from cli_api.prometheus.targets import check_prometheus_targets
 from ..kubernetes.services import ensure_prometheus_service
 
+def load_spire_overrides_template() -> str:
+    return resources.files("cli_api.cue.templates") \
+        .joinpath("spire_custom_overrides.cue") \
+        .read_text(encoding="utf-8")
 
 def bootstrap_core_impl(req) -> Dict[str, Any]:
     response: Dict[str, Any] = {
@@ -87,6 +92,31 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     response["steps"].append({"name": "edit_config_cue", **edit_res})
     if edit_res["returncode"] != 0:
         return fail("edit config.cue", edit_res, response=response)
+
+    # Conditionally add SPIRE overrides when using a non-default registry
+    image_repo = getattr(req.create_platform, "image_repository", "").strip()
+    image_host = image_repo.split("/")[0] if image_repo else ""
+
+    if image_host and not image_host.endswith(".download.greymatter.io"):
+        overrides_path = Path(dest_path) / "spire_custom_overrides.cue"
+
+        if not overrides_path.exists():
+            overrides_content = load_spire_overrides_template()
+            overrides_path.write_text(overrides_content, encoding="utf-8")
+
+            response["steps"].append({
+                "name": "write_spire_custom_overrides_cue",
+                "returncode": 0,
+                "stdout": f"Added SPIRE overrides for custom image repository: {image_host}",
+                "path": str(overrides_path),
+            })
+        else:
+            response["steps"].append({
+                "name": "write_spire_custom_overrides_cue",
+                "returncode": 0,
+                "stdout": "SPIRE overrides already present; skipping",
+                "path": str(overrides_path),
+            })
 
     logging.info("Greymatter Core has been Created")
 
@@ -204,7 +234,6 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
         response["steps"].append({"name": "kubectl_repo_secret", **repo_res})
         if repo_res.get("returncode", 1) != 0:
             return fail("kubectl repo secret", repo_res, response=response)
-
 
     # Commit + push (optional)
     commit_step = do_commit_push(req, dest_path=dest_path, git_env=git_env, message="chore: bootstrap greymatter core")

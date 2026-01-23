@@ -30,4 +30,4 @@ where = ["src"]
 cli-runner-api = "cli_api.app:main"
 
 [tool.setuptools.package-data]
-cli_api = ["web/*"]
+cli_api = ["web/*", "cue/templates/*.cue"]
