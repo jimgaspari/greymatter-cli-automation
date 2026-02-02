@@ -4,8 +4,10 @@ from typing import Dict, Any
 from pathlib import Path
 import logging
 from importlib import resources
+from datetime import datetime
+import os
 
-from cli_api.cue.edit_config import update_mesh_metadata_name
+from cli_api.cue.edit_config import set_deep_path_in_file
 from cli_api.runner import run_cmd
 from cli_api.greymatter.core_argv import build_gm_create_platform_argv, build_gm_create_operator_argv
 from cli_api.services.common import (
@@ -23,12 +25,18 @@ from cli_api.kubernetes.secrets import (
     create_namespace,
     create_image_pull_secret,
     create_repo_secret,
-    apply_edge_ingress_tls_secret
+    apply_edge_ingress_tls_secret,
 )
 from cli_api.kubernetes.manifests import apply_platform_operator_manifest
 from cli_api.prometheus.resolve import resolve_prometheus_endpoint_for_namespace
 from cli_api.prometheus.targets import check_prometheus_targets
 from cli_api.kubernetes.services import ensure_prometheus_service
+from cli_api.kubernetes.rbac import grant_sa_read_secret
+
+def load_ftr_template() -> str:
+    return resources.files("cli_api.cue.templates") \
+        .joinpath("ftr_enable.cue") \
+        .read_text(encoding="utf-8")
 
 def load_spire_overrides_template() -> str:
     return resources.files("cli_api.cue.templates") \
@@ -86,13 +94,18 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     if gm_platform["returncode"] != 0:
         return fail("greymatter create platform", gm_platform, response=response)
 
-
+    # All Updates to config.cue
     config_path = Path(dest_path) / "config.cue"
-    edit_res = update_mesh_metadata_name(config_path, req.create_platform.mesh_name)  # or whatever field you want
-    response["steps"].append({"name": "edit_config_cue", **edit_res})
-    if edit_res["returncode"] != 0:
-        return fail("edit config.cue", edit_res, response=response)
+    edit_mesh = set_deep_path_in_file(config_path, "mesh.metadata.name", f'"{req.create_platform.mesh_name}"')
+    response["steps"].append({"name": "edit_config_cue_mesh_name", **edit_mesh})
+    if edit_mesh["returncode"] != 0:
+        return fail("edit config.cue update mesh", edit_mesh, response=response)
 
+    edit_ftr = set_deep_path_in_file(config_path, "config.enable_ftr", "true")
+    response["steps"].append({"name": "edit_config_cue_ftr_enable", **edit_ftr})
+    if edit_ftr["returncode"] != 0:
+        return fail("edit config.cue enable ftr", edit_ftr, response=response)
+    
     # Conditionally add SPIRE overrides when using a non-default registry
     image_repo = getattr(req.create_platform, "image_repository", "").strip()
     image_host = image_repo.split("/")[0] if image_repo else ""
@@ -234,6 +247,19 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
         response["steps"].append({"name": "kubectl_repo_secret", **repo_res})
         if repo_res.get("returncode", 1) != 0:
             return fail("kubectl repo secret", repo_res, response=response)
+        # Persist git metadata for later workflows (in jobs namespace)
+    
+    jobs_ns = os.getenv("CLI_API_JOBS_NAMESPACE", "cli-api-jobs")
+    runner_sa = os.getenv("CLI_API_RUNNER_SA", "cli-api-runner") 
+    rbac_step = grant_sa_read_secret(
+        target_namespace=ns,                 # greymatter install ns
+        secret_name=secret_name,             # greymatter-core-repo (the one you just created)
+        subject_sa_name=runner_sa,
+        subject_sa_namespace=jobs_ns,
+    )
+    response["steps"].append({"name": "rbac_grant_read_core_git_secret", **rbac_step})
+    if rbac_step.get("returncode", 1) != 0:
+        return fail("rbac grant read core git secret", rbac_step, response=response)
 
     # Commit + push (optional)
     commit_step = do_commit_push(req, dest_path=dest_path, git_env=git_env, message="chore: bootstrap greymatter core")
@@ -246,7 +272,7 @@ def bootstrap_core_impl(req) -> Dict[str, Any]:
     if operator_apply.get("returncode", 1) != 0:
         return fail("apply platform operator manifest", operator_apply, response=response)
 
-        # --- Prometheus targets check (late/post-deploy) ---
+    # --- Prometheus targets check (late/post-deploy) ---
     pc = getattr(req, "prometheus_check", None)
     if pc and getattr(pc, "enabled", False):
         # Resolve the Prometheus endpoint based on the Greymatter namespace (ns)

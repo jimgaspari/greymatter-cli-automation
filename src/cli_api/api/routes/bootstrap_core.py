@@ -18,8 +18,7 @@ from cli_api.kubernetes.input_secrets import (
 )
 from cli_api.kubernetes.jobs import ( 
     create_workflow_job, 
-    get_job_pod_name,
-    get_pod_logs,
+    get_job_logs,
     create_workflow_job,
     wait_for_job_completion,
     read_result_secret
@@ -39,6 +38,7 @@ def api_bootstrap_core(req: BootstrapCoreReq, x_api_token: Optional[str] = Heade
         jobs_namespace=jobs_ns,
         run_id=run_id,
         request_obj=req.model_dump(),
+        secret_name=req.namespace
     )
     if secret_res.get("returncode", 1) != 0:
         raise HTTPException(
@@ -90,8 +90,8 @@ def api_bootstrap_core(req: BootstrapCoreReq, x_api_token: Optional[str] = Heade
         )
 
         # Best-effort logs (don’t fail the request just because logs aren’t available)
-        pod_name = get_job_pod_name(jobs_ns, job_name)
-        logs = get_pod_logs(jobs_ns, pod_name, container="runner", tail=400) if pod_name else None
+        logs_res = get_job_logs(jobs_namespace=jobs_ns, job_name=job_name, tail_lines=400)
+        logs = logs_res.get("stdout") if logs_res.get("returncode", 1) == 0 else None
 
         if wait_res.get("returncode", 1) != 0:
             # timed out or couldn't query status — do NOT try to read/delete result secret here
@@ -123,13 +123,6 @@ def api_bootstrap_core(req: BootstrapCoreReq, x_api_token: Optional[str] = Heade
             phase = wait_res["summary"]["phase"]
             rc = 0 if phase == "succeeded" else 1
 
-        # Only delete the result secret if we successfully read it
-        if result_obj is not None:
-            run_cmd(
-                ["kubectl", "-n", jobs_ns, "delete", "secret", f"cli-api-result-{run_id}".lower()],
-                check=False,
-                timeout_s=30,
-            )
         return {
             "returncode": rc,
             "run_id": run_id,

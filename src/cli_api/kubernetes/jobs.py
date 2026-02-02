@@ -1,9 +1,7 @@
 # cli_api/kubernetes/jobs.py
 
 from __future__ import annotations
-from fastapi import Header, HTTPException
 from typing import Any, Dict, List, Optional
-from pathlib import Path
 import json
 import re
 import time
@@ -61,18 +59,21 @@ def create_workflow_job(
     extra_env: Optional[Dict[str, str]] = None,
     backoff_limit: int = 0,
     ttl_seconds_after_finished: Optional[int] = None,
+    script_configmap_name: Optional[str] = None,
+    script_key: str = "bootstrap.sh",
+    script_mount_dir: str = "/scripts",
+    script_filename: str = "bootstrap.sh",
 ) -> Dict[str, Any]:
     """
-    Creates/updates a Job that mounts the given Secret at /inputs/request.json
-    and runs the workflow entrypoint.
+    Creates/updates a Job that mounts the given Secret at /inputs/request.json.
 
-    The Secret should contain a key "request.json".
+    Optionally mounts a ConfigMap containing a bash script (default key bootstrap.sh)
+    at script_mount_dir (default /scripts). If command is not provided and
+    script_configmap_name is set, the Job runs the script via bash -lc.
     """
     job_name = _dns1123(f"cli-api-{run_id}")
 
-    if command is None:
-        command = ["python", "-m", "cli_api.job_main"]
-
+    # Build env list
     env_list = [
         {"name": "WORKFLOW_RUN_ID", "value": run_id},
         {"name": "WORKFLOW_PAYLOAD_PATH", "value": "/inputs/request.json"},
@@ -80,6 +81,45 @@ def create_workflow_job(
     if extra_env:
         for k, v in extra_env.items():
             env_list.append({"name": str(k), "value": str(v)})
+
+    # Volumes + mounts (base)
+    volume_mounts: List[Dict[str, Any]] = [
+        {"name": "inputs", "mountPath": "/inputs", "readOnly": True},
+        {"name": "work", "mountPath": "/work"},
+        {"name": "outputs", "mountPath": "/outputs"},
+    ]
+
+    volumes: List[Dict[str, Any]] = [
+        {
+            "name": "inputs",
+            "secret": {
+                "secretName": secret_name,
+                "items": [{"key": "request.json", "path": "request.json"}],
+            },
+        },
+        {"name": "work", "emptyDir": {}},
+        {"name": "outputs", "emptyDir": {}},
+    ]
+
+    # Optional script ConfigMap mount
+    if script_configmap_name:
+        volume_mounts.append(
+            {"name": "tenant-script", "mountPath": script_mount_dir, "readOnly": True}
+        )
+        volumes.append(
+            {
+                "name": "tenant-script",
+                "configMap": {
+                    "name": script_configmap_name,
+                    # 0755 so the script is executable even if it has a shebang
+                    "defaultMode": 0o755,
+                    "items": [{"key": script_key, "path": script_filename}],
+                },
+            }
+        )
+
+    # Default command behavior
+    command = ["python", "-m", "cli_api.job_main"]
 
     job: Dict[str, Any] = {
         "apiVersion": "batch/v1",
@@ -112,26 +152,10 @@ def create_workflow_job(
                             "imagePullPolicy": "IfNotPresent",
                             "command": command,
                             "env": env_list,
-                            "volumeMounts": [
-                                {"name": "inputs", "mountPath": "/inputs", "readOnly": True},
-                                {"name": "work", "mountPath": "/work"},
-                                {"name": "outputs", "mountPath": "/outputs"},
-                            ],
+                            "volumeMounts": volume_mounts,
                         }
                     ],
-                    "volumes": [
-                        {
-                            "name": "inputs",
-                            "secret": {
-                                "secretName": secret_name,
-                                "items": [
-                                    {"key": "request.json", "path": "request.json"},
-                                ],
-                            },
-                        },
-                        {"name": "work", "emptyDir": {}},
-                        {"name": "outputs", "emptyDir": {}},
-                    ],
+                    "volumes": volumes,
                 },
             },
         },
@@ -146,6 +170,10 @@ def create_workflow_job(
     return applied
 
 def get_job(namespace: str, job_name: str) -> Dict[str, Any]:
+    """
+    Fetch a Job as JSON.
+    NOTE: Signature intentionally matches callers like wait_for_job_completion().
+    """
     res = run_cmd(
         ["kubectl", "-n", namespace, "get", "job", job_name, "-o", "json"],
         check=False,
@@ -155,17 +183,14 @@ def get_job(namespace: str, job_name: str) -> Dict[str, Any]:
         return {"returncode": 1, "step": "kubectl get job", **res}
 
     try:
-        job = json.loads(res["stdout"])
+        job = json.loads(res.get("stdout") or "{}")
     except Exception as e:
         return {"returncode": 1, "step": "parse job json", "stderr": str(e), **res}
 
     return {"returncode": 0, "job": job}
 
-def get_job_status(
-    *,
-    jobs_namespace: str,
-    job_name: str,
-) -> Dict[str, Any]:
+
+def get_job_status(*, jobs_namespace: str, job_name: str) -> Dict[str, Any]:
     """
     Returns a friendly status summary plus raw job JSON.
     """
@@ -173,7 +198,7 @@ def get_job_status(
     if res.get("returncode", 1) != 0:
         return res
 
-    job = res.get("json") or {}
+    job = res.get("job") or {}
     st = job.get("status", {}) or {}
     spec = job.get("spec", {}) or {}
 
@@ -189,7 +214,6 @@ def get_job_status(
         "conditions": st.get("conditions", []),
     }
 
-    # A simple high-level state
     state = "unknown"
     if status["succeeded"]:
         state = "succeeded"
@@ -197,10 +221,11 @@ def get_job_status(
         state = "failed"
     elif status["active"]:
         state = "running"
+    else:
+        state = "pending"
 
     status["state"] = state
-    res["status"] = status
-    return res
+    return {"returncode": 0, "status": status, "job": job}
 
 def list_job_pods(
     *,
@@ -215,11 +240,13 @@ def list_job_pods(
         timeout_s=30,
     )
 
-def get_job_pod_name(namespace: str, job_name: str) -> Optional[str]:
-    # pick the newest pod for the job
+def get_job_pod_name(*, jobs_namespace: str, job_name: str) -> Dict[str, Any]:
+    """
+    Returns newest pod name for a job (structured result).
+    """
     res = run_cmd(
         [
-            "kubectl", "-n", namespace, "get", "pods",
+            "kubectl", "-n", jobs_namespace, "get", "pods",
             "-l", f"job-name={job_name}",
             "-o", "jsonpath={.items[-1:].metadata.name}",
         ],
@@ -227,17 +254,31 @@ def get_job_pod_name(namespace: str, job_name: str) -> Optional[str]:
         timeout_s=30,
     )
     if res.get("returncode", 1) != 0:
-        return None
-    name = (res.get("stdout") or "").strip()
-    return name or None
+        return {"returncode": 1, "step": "kubectl get pod name", **res}
 
-def get_pod_logs(namespace: str, pod_name: str, container: str = "runner", tail: int = 500) -> Dict[str, Any]:
+    pod_name = (res.get("stdout") or "").strip()
+    if not pod_name:
+        return {"returncode": 1, "step": "kubectl get pod name", "stderr": "No pod found for job"}
+
+    return {"returncode": 0, "pod_name": pod_name}
+
+def get_pod_logs(
+    *,
+    jobs_namespace: str,
+    pod_name: str,
+    container: str = "runner",
+    tail_lines: int = 500,
+) -> Dict[str, Any]:
     res = run_cmd(
-        ["kubectl", "-n", namespace, "logs", pod_name, "-c", container, f"--tail={tail}"],
+        ["kubectl", "-n", jobs_namespace, "logs", pod_name, "-c", container, f"--tail={tail_lines}"],
         check=False,
         timeout_s=30,
     )
-    return {"returncode": res.get("returncode", 1), "stdout": res.get("stdout", ""), "stderr": res.get("stderr", "")}
+    return {
+        "returncode": res.get("returncode", 1),
+        "stdout": res.get("stdout", ""),
+        "stderr": res.get("stderr", ""),
+    }
 
 def get_job_logs(
     *,
@@ -355,7 +396,6 @@ def get_job_result_json(namespace: str, pod_name: str, container: str = "runner"
 
     return {"returncode": 0, "result": parsed}
 
-
 def read_result_secret(*, jobs_namespace: str, run_id: str) -> Dict[str, Any]:
     name = f"cli-api-result-{run_id}".lower()
 
@@ -379,3 +419,29 @@ def read_result_secret(*, jobs_namespace: str, run_id: str) -> Dict[str, Any]:
 
     return {"returncode": 0, "result": parsed}
 
+def wait_for_result_secret(
+    *,
+    jobs_namespace: str,
+    run_id: str,
+    timeout_s: float = 30.0,
+    poll_s: float = 1.0,
+) -> Dict[str, Any]:
+    """
+    Polls until cli-api-result-<run_id> exists and contains result.json.
+    """
+    deadline = time.time() + timeout_s
+    last: Dict[str, Any] = {}
+
+    while time.time() < deadline:
+        res = read_result_secret(jobs_namespace=jobs_namespace, run_id=run_id)
+        last = res
+        if res.get("returncode", 1) == 0:
+            return res
+        time.sleep(poll_s)
+
+    return {
+        "returncode": 1,
+        "step": "wait_for_result_secret",
+        "stderr": f"Timed out waiting for result secret cli-api-result-{run_id} in ns={jobs_namespace}",
+        "last": last,
+    }

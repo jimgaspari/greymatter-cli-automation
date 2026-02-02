@@ -3,7 +3,8 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 import tempfile
 import json
-
+import logging
+import base64
 from cli_api.runner import run_cmd
 
 def create_namespace(namespace: str) -> Dict:
@@ -15,8 +16,8 @@ def create_namespace(namespace: str) -> Dict:
         return ns_yaml
 
     apply = run_cmd(["kubectl", "apply", "-f", "-"], input=ns_yaml["stdout"], check=False)
+    logging.info("created namespace: %s", namespace)
     return apply
-
 
 def create_image_pull_secret(
     namespace: str,
@@ -38,6 +39,7 @@ def create_image_pull_secret(
         return secret_yaml
 
     apply = run_cmd(["kubectl", "apply", "-f", "-"], input=secret_yaml["stdout"])
+    logging.info("Created image pull secret: %s", secret_name)
     return apply
 
 def create_repo_secret(
@@ -90,6 +92,7 @@ def create_repo_secret(
         if secret_yaml.get("returncode", 1) != 0:
             return {"step": "kubectl create repo secret (https)", **secret_yaml}
 
+        logging.info("Created GitOps Secret")
         return _apply_from_yaml(secret_yaml.get("stdout", ""), "kubectl apply repo secret (https)")
 
     # SSH
@@ -122,6 +125,7 @@ def create_repo_secret(
         secret_yaml = run_cmd(argv, check=False)
         if secret_yaml.get("returncode", 1) != 0:
             return {"step": "kubectl create repo secret (ssh)", **secret_yaml}
+        logging.info("Created GitOps Secret")
 
         return _apply_from_yaml(secret_yaml.get("stdout", ""), "kubectl apply repo secret (ssh)")
 
@@ -162,7 +166,7 @@ def apply_edge_ingress_tls_secret(
         "type": "kubernetes.io/tls",
         "stringData": string_data,
     }
-
+    logging.info("Created Edge Ingress Secret")
     # IMPORTANT: Never include secret contents in logs/response (run_cmd returns stdout/stderr only)
     return run_cmd(
         ["kubectl", "apply", "-f", "-"],

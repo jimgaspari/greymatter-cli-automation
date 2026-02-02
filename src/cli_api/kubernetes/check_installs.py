@@ -1,7 +1,7 @@
 # cli_api/kubernetes/spire.py
 from __future__ import annotations
 from typing import Any, Dict
-
+import logging
 from cli_api.runner import run_cmd
 
 
@@ -75,4 +75,28 @@ def check_spire_installed() -> Dict[str, Any]:
     return {
         "returncode": 0,
         "installed": False,
+    }
+
+def check_greymatter_installed(namespace: str) -> Dict[str, Any]:
+    validate: Dict[str, Any] = {}
+    logging.info("Checking for installed Greymatter Operator in %s namespace", namespace)
+    po = run_cmd(
+        [
+            "kubectl", "get", "deploy", 
+            "-n", namespace,
+            "greymatter-po", "-o", "name"
+        ],
+        check=False,
+        timeout_s=30,
+    )
+    validate["greymatter_po_deploy_by_instance"] = po
+    if po.get("returncode", 1) == 0 and (po.get("stdout") or "").strip():
+        return {
+            "returncode": 0,
+            "gm_installed": True,
+            "method": "greymatter_po_deployed"
+        }
+    return {
+        "returncode": 0,
+        "gm_installed": False,
     }

@@ -14,7 +14,8 @@ from cli_api.runner import run_cmd
 from cli_api.schemas import BootstrapCoreReq, BootstrapTenantReq
 from cli_api.services.core import bootstrap_core_impl
 from cli_api.services.tenant import bootstrap_tenant_impl
-from cli_api.kubernetes.spire import check_spire_installed
+from cli_api.services.tenant_configs import tenant_config_impl
+from cli_api.kubernetes.check_installs import check_spire_installed, check_greymatter_installed
 from cli_api.git.repo import ensure_gitea_repo, parse_git_repo_url
 
 RESULT_PATH = os.getenv("CLI_API_RESULT_PATH", "/outputs/result.json")
@@ -155,6 +156,22 @@ def main() -> int:
             
             job_steps = []
 
+            greymatter_namespace = req.namespace
+            greymatter_deployed = check_greymatter_installed(namespace=greymatter_namespace)
+            if greymatter_deployed.get("gm_installed"):
+                logging.info("Greymatter has been installed")
+                job_steps.append({"name": "preflight_greymatter_installed", **greymatter_deployed})
+                result = {
+                        "returncode": 1,
+                        "workflow": workflow,
+                        "step": "preflight_greymatter_installed",
+                        "stderr": "Greymatter has been installed to this namespace",
+                        "steps": job_steps,
+                    }
+                return 1
+            else:
+                logging.info("Greymatter has not been installed in the %s namespace", greymatter_namespace)
+
             security = (getattr(req.create_platform, "security", None) or "").strip().lower()
             no_managed = bool(getattr(req.create_platform, "no_managed_spire", False))
 
@@ -193,7 +210,44 @@ def main() -> int:
 
         elif workflow in ("bootstrap-tenant", "tenant"):
             req = BootstrapTenantReq.model_validate(payload)
+
+            # Ensure the tenant repo exists (same behavior as bootstrap-core)
+            info = parse_git_repo_url(req.git.repo_url)
+
+            token = getattr(req.git, "token", None)
+            if not token:
+                result = {
+                    "returncode": 1,
+                    "workflow": workflow,
+                    "step": "ensure_repo_exists",
+                    "stderr": "Missing clone.token for Gitea API repo creation",
+                }
+                return 1
+
+            ensure_repo = ensure_gitea_repo(
+                base_url=info["base_url"],
+                owner=info["owner"],
+                repo=info["repo"],
+                token=token,
+                verify_ssl=not req.git.insecure_skip_tls_verify,
+            )
+
+            if ensure_repo.get("returncode", 1) != 0:
+                result = {
+                    "returncode": 1,
+                    "workflow": workflow,
+                    "step": "ensure_repo_exists",
+                    "stderr": ensure_repo.get("stderr", "failed to ensure repo"),
+                    "detail": ensure_repo,
+                }
+                return 1
+
+            # proceed with tenant bootstrap
             result = bootstrap_tenant_impl(req)
+
+        elif workflow in ("tenant-config", "configure-tenant"):
+            payload = _read_json_file(payload_path)
+            result = tenant_config_impl(payload=payload, jobs_namespace=JOBS_NS)
 
         else:
             result = {

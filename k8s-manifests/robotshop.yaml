@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: robot-shop-script
+  namespace: cli-api-jobs
+data:
+  bootstrap.sh: |
+    greymatter create edge edge --protocol http
+
+    # HTTP Services
+    greymatter create service web --protocol http \
+        --upstream-port 8080 --edge edge --edge-route "/"
+    greymatter create service catalogue --protocol http --upstream-port 8080
+    greymatter create service user --protocol http --upstream-port 8080
+    greymatter create service cart --protocol http --upstream-port 8080
+    greymatter create service shipping --protocol http --upstream-port 8080
+    greymatter create service payment --protocol http --upstream-port 8080
+    greymatter create service ratings --protocol http --upstream-port 80
+
+    # TCP Services
+    greymatter create service redis --protocol tcp --port 6379
+    greymatter create service mongodb --protocol tcp --port 27017
+    greymatter create service mysql --protocol tcp --port 3306
+    greymatter create service rabbitmq --protocol tcp --port 5672
+
+    # Web Connections
+    greymatter create listener catalogue --service web \
+        --auto-egress --protocol http --domain "catalogue:8080"
+    greymatter create upstream --service web \
+        --listener catalogue --target catalogue --protocol http \
+        --route "/"    
+    greymatter create listener user --service web \
+        --auto-egress --protocol http --domain "user:8080"
+    greymatter create upstream user --service web --listener user \
+        --target user --protocol http --route "/"
+    greymatter create listener cart --service web \
+        --auto-egress --protocol http --domain "cart:8080"
+    greymatter create upstream cart --service web --listener cart \
+        --target cart --protocol http --route "/" 
+    greymatter create listener ratings --service web \
+        --auto-egress --protocol http --domain "ratings:80"
+    greymatter create upstream --service web --listener ratings \
+        --target ratings --protocol http --route "/"
+    greymatter create listener payment --service web \
+        --auto-egress --protocol http --domain "payment:8080"
+    greymatter create upstream payment --service web --listener payment \
+        --target payment --protocol http --route "/"
+    greymatter create listener shipping --service web \
+        --auto-egress --protocol http --domain "shipping:8080"
+    greymatter create upstream shipping --service web --listener shipping \
+        --target shipping --protocol http --route "/"
+
+    # User Connections
+    greymatter create listener redis --service user \
+        --egress --protocol tcp --port 6379
+    greymatter create upstream redis --listener redis \
+        --service user --target redis --protocol tcp    
+    greymatter create listener mongodb --service user \
+        --egress --protocol tcp --port 27017
+    greymatter create upstream mongodb --listener mongodb \
+        --service user --target mongodb --protocol tcp     
+
+    # Catalog Connections
+    greymatter create listener mongodb --service catalogue \
+        --egress --protocol tcp --port 27017
+    greymatter create upstream mongodb --listener mongodb \
+        --service catalogue --target mongodb --protocol tcp  
+
+    # Cart Connections
+    greymatter create listener catalogue --service cart \
+        --auto-egress --protocol http --domain "catalogue:8080"
+    greymatter create route "/product/" --service cart \
+        --listener catalogue --prefix-rewrite "/product/"
+    greymatter create upstream catalogue --service cart \
+        --listener catalogue --target catalogue --protocol http \
+        --route "/product/" 
+    greymatter create listener redis --service cart \
+        --egress --protocol tcp --port 6379
+    greymatter create upstream redis --listener redis \
+        --service cart --target redis --protocol tcp 
+
+    # Payment Connections
+    greymatter create listener services --service payment \
+        --auto-egress --protocol http --domain "cart:8080" --domain "user:8080"
+    greymatter create route "/cart/" --service payment \
+        --listener services --prefix-rewrite "/cart/"
+    greymatter create upstream cart --service payment \
+        --listener services --target cart --protocol http \
+        --route "/cart/" 
+    greymatter create route "/check/" --service payment \
+        --listener services --prefix-rewrite "/check/"
+    greymatter create upstream user --service payment \
+        --listener services --target user --protocol http \
+        --route "/check/"
+    greymatter create route "/order/" --service payment \
+        --listener services --prefix-rewrite "/order/"
+    greymatter create upstream user --service payment \
+        --listener services --target user --protocol http \
+        --route "/order/"
+    greymatter create listener rabbitmq --service payment \
+        --egress --protocol tcp --port 5672
+    greymatter create upstream rabbitmq --listener rabbitmq \
+        --service payment --target rabbitmq --protocol tcp 
+
+    # Ratings Connections
+    greymatter create listener catalogue --service ratings \
+        --auto-egress --protocol http --domain "catalogue:8080"
+    greymatter create route "/product/" --service ratings \
+        --listener catalogue --prefix-rewrite "/product/"
+    greymatter create upstream catalogue --service ratings \
+        --listener catalogue --target catalogue --protocol http \
+        --route "/product/"
+    greymatter create listener mysql --service ratings \
+        --egress --protocol tcp --port 3306
+    greymatter create upstream mysql --service ratings \
+        --listener mysql --target mysql --protocol tcp 
+
+    # Shipping Connections
+    greymatter create listener services --service shipping \
+        --auto-egress --protocol http --domain "cart:8080"
+    greymatter create route "/shipping/" --service shipping \
+        --listener services --prefix-rewrite "/shipping/"
+    greymatter create upstream cart --service shipping \
+        --listener services --target cart --protocol http \
+        --route "/shipping/" 
+    greymatter create listener mysql --service shipping \
+        --egress --protocol tcp --port 3306
+    greymatter create upstream mysql --service shipping \
+        --listener mysql --target mysql --protocol tcp

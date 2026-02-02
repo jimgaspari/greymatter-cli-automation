@@ -1,4 +1,4 @@
 .venv/
-key.b64
-known_hosts
 bin/greymatter
+uv.lock
+src/cli_api.egg-info

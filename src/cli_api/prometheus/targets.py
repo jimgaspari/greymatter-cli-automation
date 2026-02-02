@@ -2,7 +2,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional
 import requests
-
+import logging
 
 def _join_prefix(prefix: str, path: str) -> str:
     p = (prefix or "").strip()
@@ -42,7 +42,7 @@ def check_prometheus_targets(
     host = f"{service_name}.{namespace}.svc"
     path = _join_prefix(path_prefix, "/api/v1/targets")
     url = f"{scheme}://{host}:{port}{path}"
-
+    logging.info("Starting Prometheus Checks")
     step: Dict[str, Any] = {
         "name": "prometheus_targets_check",
         "returncode": 1,
@@ -190,6 +190,7 @@ def check_prometheus_targets(
         step["counts"] = last_counts
     if last_down_summary is not None:
         step["down_targets"] = last_down_summary
+        logging.error("The following services have reported Down: %s", last_down_summary)
     if last_seen_jobs is not None:
         step["seen_jobs"] = last_seen_jobs
     return step

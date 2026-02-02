@@ -54,15 +54,3 @@ class BootstrapCoreReq(WorkflowBaseReq):
         self.namespace = self.kubernetes.namespace
         return self
 
-class BootstrapTenantReq(WorkflowBaseReq):
-    tenant_name: str = Field(min_length=1, description="Tenant identifier/name")
-    namespace: str | None = None
-    prometheus_check: PrometheusCheckConfig = Field(default_factory=PrometheusCheckConfig)
-
-    @model_validator(mode="after")
-    def require_namespace(self):
-        ns = (self.namespace or "").strip() or None
-        if not ns:
-            raise ValueError("namespace is required for bootstrap-tenant")
-        self.namespace = ns
-        return self

@@ -22,6 +22,6 @@ class EdgeIngressTLSSecret(BaseModel):
 
 class KubernetesSecrets(BaseModel):
     namespace: Optional[str] = None
-    image_pull: ImagePullSecret
+    image_pull: Optional[ImagePullSecret] = None
     create_repo_secret: bool = True
     edge_ingress_tls_secret: EdgeIngressTLSSecret = Field(default_factory=EdgeIngressTLSSecret)
