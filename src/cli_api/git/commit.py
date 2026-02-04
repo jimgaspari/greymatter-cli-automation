@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Dict, Optional
-
+import logging
 from cli_api.runner import run_cmd
 
 
@@ -23,7 +23,9 @@ def git_commit_and_push(
 ) -> Dict:
     env = env or {}
     steps: Dict = {}
-
+    
+    logging.info("Beging Commit Process to the following repo: %s", repo_path)
+    
     add = run_cmd(["git", "add", "-A"], cwd=repo_path, env=env, check=False)
     steps["add"] = add
     if add.get("returncode", 1) != 0:
@@ -33,7 +35,7 @@ def git_commit_and_push(
     commit = run_cmd(["git", "commit", "-m", message], cwd=repo_path, env=env, check=False)
     steps["commit"] = commit
     if commit.get("returncode", 1) != 0:
-        out = (commit.get("stdout", "") + commit.get("stderr", "")).lower()
+        out = (commit.get("stderr", "")).lower()
         if "nothing to commit" not in out:
             return {"returncode": commit["returncode"], "step": "git commit", "steps": steps}
 

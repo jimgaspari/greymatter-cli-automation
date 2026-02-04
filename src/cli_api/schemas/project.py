@@ -1,10 +1,10 @@
 # schemas/workflows.py
 from __future__ import annotations
+import logging
+from pydantic import BaseModel, Field, model_validator
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
-from typing import Optional
-
-from cli_api.schemas.git import GitConfig
+from cli_api.schemas.git import GitConfig, GitOverrides
 from cli_api.schemas.kubectl import KubernetesSecrets
 from cli_api.schemas.prometheus import PrometheusCheckConfig
 
@@ -16,12 +16,7 @@ class CreateProjectScript(BaseModel):
     mount_dir: str = Field(default="/scripts", min_length=1)
     filename: str = Field(default="bootstrap.sh", min_length=1)
 
-class CreateProjectReq(BaseModel):
-    core_namespace: str = Field(
-        min_length=1,
-        description="Namespace where Greymatter core is installed (contains greymatter-core-repo secret)",
-    )
-
+class CreateProjectSettings(BaseModel):
     openshift: bool = Field(
         default=False,
         description="Enable OpenShift support",
@@ -32,18 +27,39 @@ class CreateProjectReq(BaseModel):
         description="Mesh security type",
         pattern="^(plaintext|spire|pki)$",
     )
+
+class TenantItem(BaseModel):
+    namespace: str = Field(min_length=1)
+    project_settings: CreateProjectSettings = Field(default_factory=CreateProjectSettings)  # reuse your existing CreateProjectReq if you prefer
     script: CreateProjectScript = Field(default_factory=CreateProjectScript)
+    git: GitOverrides = Field(default_factory=GitOverrides)
 
 class BootstrapTenantReq(BaseModel):
-
     workspace_name: Optional[str] = None
-    create_project: CreateProjectReq = Field(default_factory=CreateProjectReq)
-    kubernetes: KubernetesSecrets
-    git: GitConfig
-    prometheus_check: PrometheusCheckConfig = Field(default_factory=PrometheusCheckConfig)
-    namespace: str = Field(
-        min_length=1,
-        description="Tenant namespace (also used as Greymatter project name)",
-    )
-
+    core_namespace: str = Field(min_length=1)
     
+    # job uses concrete configs (already merged/validated by API)
+    git: GitOverrides = Field(default_factory=GitOverrides)
+    kubernetes: KubernetesSecrets
+    prometheus_check: PrometheusCheckConfig
+
+    tenants: List[TenantItem] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_merged_git(self):
+        base = self.git.model_dump(exclude_unset=True)
+
+        for i, t in enumerate(self.tenants):
+            merged = {**base, **t.git.model_dump(exclude_unset=True)}
+
+            # repo_url must exist after merge
+            if not (merged.get("repo_url") or "").strip():
+                raise ValueError(f"tenants[{i}].git.repo_url is required (or provide git.repo_url globally)")
+
+            # this enforces ssh key rules, etc.
+            try:
+                GitConfig(**merged)
+            except Exception as e:
+                raise ValueError(f"tenants[{i}].git invalid after merge: {e}")
+
+        return self

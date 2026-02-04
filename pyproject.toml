@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cli-api"
-version = "0.1.0"
+version = "0.3.0"
 description = "REST API to run git/greymatter/kubectl commands in a container with guardrails."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn[standard]>=0.27",
     "pydantic>=2.6",
     "requests>=2.31.0",
+    "pydantic_settings>=2.12.0",
 ]
 
 [project.optional-dependencies]

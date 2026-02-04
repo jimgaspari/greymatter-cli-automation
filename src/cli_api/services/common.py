@@ -39,7 +39,7 @@ def fail(
     failure = {
         "returncode": result.get("returncode", result.get("exit_code", 1) or 1),
         "step": step,
-        "stdout": result.get("stdout"),
+        # "stdout": result.get("stdout"),
         "stderr": result.get("stderr"),
         "argv": result.get("argv"),
     }

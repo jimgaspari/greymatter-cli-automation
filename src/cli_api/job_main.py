@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from cli_api.runner import run_cmd
-from cli_api.schemas import BootstrapCoreReq, BootstrapTenantReq
+from cli_api.config import settings
+from cli_api.schemas import BootstrapCoreReq, BootstrapTenantReq, GitConfig
 from cli_api.services.core import bootstrap_core_impl
 from cli_api.services.tenant import bootstrap_tenant_impl
 from cli_api.services.tenant_configs import tenant_config_impl
@@ -90,9 +91,22 @@ def _infer_returncode(result: Dict[str, Any]) -> int:
 
     return 1
 
+def _as_dict(x):
+    if x is None:
+        return {}
+    if isinstance(x, dict):
+        # drop None values from plain dicts too
+        return {k: v for k, v in x.items() if v is not None}
+    if hasattr(x, "model_dump"):
+        return x.model_dump(exclude_unset=True, exclude_none=True)
+    d = dict(x)
+    return {k: v for k, v in d.items() if v is not None}
 
 def main() -> int:
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.warning("ENV CLI_API_WORKDIR=%r", os.environ.get("CLI_API_WORKDIR"))
+    logging.warning("settings.workdir=%r", getattr(settings, "workdir", None))
+    
     logging.basicConfig(
         level=getattr(logging, log_level, logging.INFO),
         format="%(levelname)s:%(name)s:%(message)s",
@@ -211,16 +225,53 @@ def main() -> int:
         elif workflow in ("bootstrap-tenant", "tenant"):
             req = BootstrapTenantReq.model_validate(payload)
 
-            # Ensure the tenant repo exists (same behavior as bootstrap-core)
-            info = parse_git_repo_url(req.git.repo_url)
+            if not req.tenants or len(req.tenants) != 1:
+                result = {
+                    "returncode": 1,
+                    "workflow": workflow,
+                    "step": "validate_payload",
+                    "stderr": f"bootstrap-tenant job expects exactly 1 tenant in tenants[], got {0 if not req.tenants else len(req.tenants)}",
+                }
+                return 1
 
-            token = getattr(req.git, "token", None)
+            tenant = req.tenants[0]
+            logging.warning("JOB PAYLOAD KEYS: %s", sorted(payload.keys()))
+            logging.warning("JOB PAYLOAD git: %r", payload.get("git"))
+            logging.warning("JOB PAYLOAD tenants[0].git: %r", (payload.get("tenants") or [{}])[0].get("git"))
+            logging.warning("MODEL req.git: %r", getattr(req, "git", None))
+            logging.warning("MODEL tenant.git: %r", getattr(tenant, "git", None))
+
+            base = _as_dict(req.git)
+            over = _as_dict(tenant.git)
+            merged = {**base, **over}
+
+            logging.warning("MERGE base=%r", base)
+            logging.warning("MERGE over=%r", over)
+            logging.warning("MERGE merged=%r", merged)
+
+            # hard guard BEFORE building GitConfig
+            repo_url = (merged.get("repo_url") or "").strip()
+            if not repo_url:
+                result = {
+                    "returncode": 1,
+                    "workflow": workflow,
+                    "step": "validate_git",
+                    "stderr": "git.repo_url missing after merge",
+                    "detail": {"base": base, "over": over, "merged": merged},
+                }
+                return 1
+
+            git = GitConfig(**merged)  # <-- this MUST be the only assignment to git
+            logging.warning("GITCONFIG after validate: %r", git.model_dump())
+            
+            info = parse_git_repo_url(git.repo_url)
+            token = git.token
             if not token:
                 result = {
                     "returncode": 1,
                     "workflow": workflow,
                     "step": "ensure_repo_exists",
-                    "stderr": "Missing clone.token for Gitea API repo creation",
+                    "stderr": "Missing git.token for Gitea API repo creation",
                 }
                 return 1
 
@@ -229,9 +280,8 @@ def main() -> int:
                 owner=info["owner"],
                 repo=info["repo"],
                 token=token,
-                verify_ssl=not req.git.insecure_skip_tls_verify,
+                verify_ssl=not git.insecure_skip_tls_verify,
             )
-
             if ensure_repo.get("returncode", 1) != 0:
                 result = {
                     "returncode": 1,
@@ -242,8 +292,13 @@ def main() -> int:
                 }
                 return 1
 
-            # proceed with tenant bootstrap
-            result = bootstrap_tenant_impl(req)
+            # IMPORTANT: pass merged git into whatever your impl expects
+            result = bootstrap_tenant_impl(
+                req=req,
+                tenant=tenant,
+                git=git,
+            )
+
 
         elif workflow in ("tenant-config", "configure-tenant"):
             payload = _read_json_file(payload_path)

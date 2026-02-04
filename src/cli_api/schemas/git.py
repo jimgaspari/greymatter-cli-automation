@@ -1,7 +1,7 @@
 # schemas/git.py
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import Optional, Literal, Dict
 from dataclasses import dataclass
 
@@ -10,7 +10,7 @@ GitTransport = Literal["ssh", "https"]
 class GitConfig(BaseModel):
     # Transport + remote
     type: GitTransport = Field(default="ssh", description="ssh or https")
-    repo_url: str
+    repo_url: Optional[str] = None
 
     depth: int = 1
 
@@ -48,6 +48,36 @@ class GitConfig(BaseModel):
         # HTTPS: allow anonymous clone if no password/token
         # (creation/push likely needs token/password, but don't force at schema level)
         return self
+
+class GitOverrides(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # optional but recommended
+
+    # Transport + remote
+    type: Optional[GitTransport] = None
+    repo_url: Optional[str] = None
+    depth: Optional[int] = None
+
+    # Branch behavior
+    base_branch: Optional[str] = None
+    target_branch: Optional[str] = None
+    create_branch_if_missing: Optional[bool] = None
+    push_branch_to_remote: Optional[bool] = None
+    push_changes: Optional[bool] = None
+
+    # Commit identity
+    author_name: Optional[str] = None
+    author_email: Optional[str] = None
+
+    # --- SSH auth ---
+    ssh_private_key: Optional[str] = None
+    known_hosts: Optional[str] = None
+    strict_host_key_checking: Optional[bool] = None
+
+    # --- HTTPS auth ---
+    username: Optional[str] = None
+    password: Optional[str] = None
+    token: Optional[str] = None
+    insecure_skip_tls_verify: Optional[bool] = None
 
 @dataclass
 class SshAuth:

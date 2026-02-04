@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: postgres-script
+    namespace: cli-api-jobs
+data:
+    bootstrap.sh: |
+        greymatter create service --protocol tcp \
+            --upstream-port 5432 postgres \
+            --upstream-spire-subject $FLASK_NAMESPACE-flask

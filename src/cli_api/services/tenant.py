@@ -5,6 +5,7 @@ from pathlib import Path
 import logging
 
 from cli_api.runner import run_cmd
+from cli_api.schemas import BootstrapTenantReq, GitConfig, TenantItem
 from cli_api.greymatter.project_argv import build_gm_create_project_argv
 from cli_api.services.common import (
     create_workspace,
@@ -22,7 +23,7 @@ from cli_api.kubernetes.secrets import (
     apply_edge_ingress_tls_secret
 )
 
-def bootstrap_tenant_impl(req) -> Dict[str, Any]:
+def bootstrap_tenant_impl(*, req: BootstrapTenantReq, tenant: TenantItem, git: GitConfig) -> dict:
     """
     Bootstrap a Greymatter tenant by running:
         greymatter create project <namespace> [--openshift] [--security <...>]
@@ -37,7 +38,8 @@ def bootstrap_tenant_impl(req) -> Dict[str, Any]:
     }
 
     # Namespace is the tenant name (per your requirement)
-    tenant_ns = (getattr(req, "namespace", None) or "").strip()
+    tenant_ns = (tenant.namespace or "").strip()
+    logging.info("Tenant Namespace is %s", tenant_ns)
     if not tenant_ns:
         step = {"returncode": 1, "stderr": "namespace is required for bootstrap-tenant"}
         response["steps"].append({"name": "validate_namespace", **step})
@@ -49,6 +51,8 @@ def bootstrap_tenant_impl(req) -> Dict[str, Any]:
         "security": getattr(req, "security", "spire"),
         "openshift": bool(getattr(req, "openshift", False)),
     }
+    
+    req = req.model_copy(update={"git": git})
 
     run_id, workspace_path = create_workspace("tenant", req.workspace_name)
     response["workspace"] = {"name": run_id, "path": workspace_path}
@@ -60,6 +64,7 @@ def bootstrap_tenant_impl(req) -> Dict[str, Any]:
     response["steps"].append(clone_step)
     if clone_step.get("returncode", 1) != 0:
         return fail("git clone", clone_step, response=response)
+    logging.info("STEP git_clone rc=%s", clone_step.get("returncode"))
 
     br_step = do_branch(req, dest_path=dest_path, git_env=git_env)
     if br_step:
@@ -76,12 +81,11 @@ def bootstrap_tenant_impl(req) -> Dict[str, Any]:
     cp = getattr(req, "create_project", None)
     gm_argv = build_gm_create_project_argv(namespace=tenant_ns, create_project=cp)
 
-    logging.info("Greymatter Project, %s has been Created", tenant_ns)
-
     gm_res = run_cmd(gm_argv, timeout_s=600, cwd=dest_path, check=False)
     response["steps"].append({"name": "greymatter_create_project", "argv": gm_argv, **gm_res})
     if gm_res.get("returncode", 1) != 0:
         return fail("greymatter create project", gm_res, response=response)
+    logging.info("STEP greymatter_create_project rc=%s", gm_res.get("returncode"))
 
     # Verify .greymatter file
     gm_file = Path(dest_path) / ".greymatter"
@@ -125,6 +129,7 @@ def bootstrap_tenant_impl(req) -> Dict[str, Any]:
     response["steps"].append(commit_step)
     if commit_step.get("returncode") not in (None, 0):
         return fail("git commit & push", commit_step, response=response)
+    logging.info("STEP git_push rc=%s", commit_step.get("returncode"))
 
     ns = tenant_ns
     k8s = req.kubernetes
@@ -166,12 +171,12 @@ def bootstrap_tenant_impl(req) -> Dict[str, Any]:
     if k8s.create_repo_secret:
         secret_name = "greymatter-admin-sync"
 
-        if req.git.type == "ssh":
+        if git.type == "ssh":
             repo_res = create_repo_secret(
                 namespace=ns,
                 secret_name=secret_name,
-                repo_url=req.git.repo_url,
-                branch=req.git.target_branch or req.git.base_branch,
+                repo_url=git.repo_url,
+                branch=git.target_branch or git.base_branch,
                 auth_type="ssh",
                 known_hosts=req.git.known_hosts,
                 ssh_key=req.git.ssh_private_key,
@@ -195,8 +200,8 @@ def bootstrap_tenant_impl(req) -> Dict[str, Any]:
             repo_res = create_repo_secret(
                 namespace=ns,
                 secret_name=secret_name,
-                repo_url=req.git.repo_url,
-                branch=req.git.target_branch or req.git.base_branch,
+                repo_url=git.repo_url,
+                branch=git.target_branch or git.base_branch,
                 auth_type="https",
                 http_username=http_username,
                 http_password=http_password,

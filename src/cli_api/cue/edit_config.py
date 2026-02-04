@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 
 
-def update_tenant_namespaces(config_path: Path, tenant_ns: str) -> Dict[str, Any]:
+def update_tenant_namespaces(config_path: Path, tenant_ns: Union[str, List[str]]) -> Dict[str, Any]:
     """
     Add tenant_ns to config.tenant_namespaces array in config.cue.
 
@@ -15,6 +15,14 @@ def update_tenant_namespaces(config_path: Path, tenant_ns: str) -> Dict[str, Any
     """
     step: Dict[str, Any] = {"returncode": 1}
 
+    if isinstance(tenant_ns, list):
+        steps = []
+        for ns in tenant_ns:
+            steps.append(update_tenant_namespaces(config_path, str(ns)))
+        # overall rc is 0 if all succeeded
+        rc = 0 if all(s.get("returncode", 1) == 0 for s in steps) else 1
+        return {"returncode": rc, "steps": steps}
+    
     try:
         s = config_path.read_text(encoding="utf-8")
     except Exception as e:

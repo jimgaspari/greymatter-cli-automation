@@ -1,6 +1,7 @@
-import subprocess
+import subprocess, logging, os
 from typing import Any, Mapping, Optional, Sequence, Union
 
+from cli_api.config import settings
 
 def run_cmd(
     cmd: Sequence[str],
@@ -23,12 +24,22 @@ def run_cmd(
     # If bytes input is provided, force text=False unless caller already did.
     if isinstance(input, (bytes, bytearray)) and text:
         text = False
+    
+    bad = [i for i, x in enumerate(cmd) if x is None]
+    if bad:
+        return {
+            "stdout": "",
+            "stderr": f"run_cmd got None in cmd at positions {bad}: {list(cmd)!r}",
+            "returncode": 1,
+        }
+    
+    cmd_list = [str(x) for x in cmd]
 
     try:
         r = subprocess.run(
             list(cmd),
             input=input,
-            cwd=cwd,
+            cwd = cwd or getattr(settings, "workdir", None) or "/work",
             env=dict(env) if env is not None else None,
             capture_output=True,
             text=text,
@@ -47,6 +58,11 @@ def run_cmd(
         return out
 
     out = {"stdout": r.stdout or "", "stderr": r.stderr or "", "returncode": r.returncode}
+
+    if r.returncode != 0:
+        logging.warning("CMD FAIL rc=%s cmd=%r cwd=%r stderr=%s",
+                        r.returncode, list(cmd), cwd, (out["stderr"] or "")[-500:])
+
 
     if check and r.returncode != 0:
         raise subprocess.CalledProcessError(

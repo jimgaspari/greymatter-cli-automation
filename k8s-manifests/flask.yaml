@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: flask-script
+    namespace: cli-api-jobs
+data:
+    bootstrap.sh: |
+        greymatter create edge edge --protocol http
+
+        greymatter create service --edge edge \
+            --protocol http --upstream-port 5000 flask
+            
+        greymatter create upstream  \
+            --service flask --listener flask-to-postgres  \
+            --target postgres --target-namespace $PSQL_NAMESPACE

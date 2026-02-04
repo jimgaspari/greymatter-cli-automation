@@ -89,7 +89,14 @@ def _load_core_repo_secret(
 
 def tenant_config_impl(*, payload: Dict[str, Any], jobs_namespace: str) -> Dict[str, Any]:
     core_ns = (payload.get("core_namespace") or "").strip()
-    tenant_ns = (payload.get("tenant_namespace") or payload.get("namespace") or "").strip()
+    
+    tenant_list = payload.get("tenant_namespaces")
+    if isinstance(tenant_list, list):
+        tenant_ns_list = [str(x).strip() for x in tenant_list if str(x).strip()]
+    else:
+        # legacy fallback
+        one = (payload.get("tenant_namespace") or payload.get("namespace") or "").strip()
+        tenant_ns_list = [one] if one else []
 
     resp: Dict[str, Any] = {
         "returncode": 1,
@@ -100,9 +107,9 @@ def tenant_config_impl(*, payload: Dict[str, Any], jobs_namespace: str) -> Dict[
         "steps": [],
     }
 
-    if not core_ns or not tenant_ns:
+    if not core_ns or not tenant_ns_list:
         resp["step"] = "validate_payload"
-        resp["stderr"] = "core_namespace and tenant_namespace are required"
+        resp["stderr"] = "core_namespace and tenant_namespaces are required"
         return resp
 
     # 1) Read core repo secret from the core namespace

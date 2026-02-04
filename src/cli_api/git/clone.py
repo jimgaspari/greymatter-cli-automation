@@ -26,6 +26,7 @@ def git_clone_https(
         argv += ["--branch", branch]
     argv += [repo_https_url, dest_path]
 
+    
     result = run_cmd(argv, timeout_s=timeout_s, env=env, cwd=settings.workdir, check=False)
     return dest_path, result
 
@@ -76,6 +77,9 @@ def clone_repo(
     timeout_s: int = 180
 ) -> Tuple[str, Dict]:
     if git.type == "ssh":
+        if not (git.repo_url or "").strip():
+            return "", {"returncode": 1, "stderr": f"git.repo_url missing; git={git.model_dump()}", "stdout": ""}
+        
         return git_clone_ssh(
             repo_ssh_url=git.repo_url, 
             dest_dir=dest_dir, 
@@ -84,6 +88,10 @@ def clone_repo(
             env=env, 
             timeout_s=timeout_s
         )
+    
+    if not (git.repo_url or "").strip():
+        return "", {"returncode": 1, "stderr": f"git.repo_url missing; git={git.model_dump()}", "stdout": ""}
+
     return git_clone_https(
         repo_https_url=git.repo_url, 
         dest_dir=dest_dir, 
