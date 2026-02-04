@@ -91,28 +91,28 @@ def bootstrap_tenant_impl(*, req: BootstrapTenantReq, tenant: TenantItem, git: G
     gm_file = Path(dest_path) / ".greymatter"
     ensure_file_exists(gm_file, step_name="post_check")
 
-        # Optional: run mounted tenant script (ConfigMap volume mounted at /scripts)
-    script_cfg = getattr(getattr(req, "create_project", None), "script", None)
+    # Optional: run mounted tenant script (ConfigMap volume mounted at /scripts)
+    script_cfg = getattr(tenant, "script", None)
     if script_cfg and bool(getattr(script_cfg, "enabled", False)):
+
         script_mount_dir = str(getattr(script_cfg, "mount_dir", "/scripts") or "/scripts")
         script_filename = str(getattr(script_cfg, "filename", "bootstrap.sh") or "bootstrap.sh")
         script_path = str(Path(script_mount_dir) / script_filename)
+        logging.info("Running tenant script enabled=%s path=%s", script_cfg.enabled, script_path)
 
-        # Ensure the file is present in the container
         ls_step = run_cmd(
             ["bash", "-lc", f"ls -la {script_mount_dir} && test -f {script_path}"],
             timeout_s=30,
-            cwd=dest_path,   # keep context in repo root
+            cwd=dest_path,
             check=False,
         )
         response["steps"].append({"name": "tenant_script_verify_mount", "script_path": script_path, **ls_step})
         if ls_step.get("returncode", 1) != 0:
             return fail("verify tenant script mount", ls_step, response=response)
 
-        # Execute the script from the repo root so `.greymatter` is found
         run_step = run_cmd(
             ["bash", "-lc", script_path],
-            timeout_s=1800,  # adjust as needed
+            timeout_s=1800,
             cwd=dest_path,
             check=False,
         )
