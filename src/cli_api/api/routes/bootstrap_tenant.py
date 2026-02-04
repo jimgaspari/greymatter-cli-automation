@@ -235,7 +235,11 @@ def api_bootstrap_tenant(req: BootstrapTenantReq, x_api_token: Optional[str] = H
 
     if overall_rc == 0:
         config_run_id = _utc_run_id("tenant-config")
-        payload = {"core_namespace": core_namespace, "tenant_namespaces": tenant_namespaces}
+        payload = {
+            "core_namespace": core_namespace,
+            "workspace_name": getattr(req, "workspace_name", None),
+            "tenants": [{"namespace": ns} for ns in tenant_namespaces],
+        }
 
         config_secret = create_run_input_secret(
             jobs_namespace=jobs_ns,

@@ -89,27 +89,37 @@ def _load_core_repo_secret(
 
 def tenant_config_impl(*, payload: Dict[str, Any], jobs_namespace: str) -> Dict[str, Any]:
     core_ns = (payload.get("core_namespace") or "").strip()
-    
-    tenant_list = payload.get("tenant_namespaces")
-    if isinstance(tenant_list, list):
-        tenant_ns_list = [str(x).strip() for x in tenant_list if str(x).strip()]
-    else:
-        # legacy fallback
-        one = (payload.get("tenant_namespace") or payload.get("namespace") or "").strip()
-        tenant_ns_list = [one] if one else []
+
+    # NEW: derive tenants from payload["tenants"]
+    tenants_val = payload.get("tenants") or []
+    tenant_ns_list: list[str] = []
+    if isinstance(tenants_val, list):
+        for t in tenants_val:
+            if isinstance(t, dict):
+                ns = (t.get("namespace") or "").strip()
+                if ns:
+                    tenant_ns_list.append(ns)
+            elif isinstance(t, str):
+                ns = t.strip()
+                if ns:
+                    tenant_ns_list.append(ns)
+
+    # de-dupe, preserve order
+    seen = set()
+    tenant_ns_list = [x for x in tenant_ns_list if not (x in seen or seen.add(x))]
 
     resp: Dict[str, Any] = {
         "returncode": 1,
         "workflow": "tenant-config",
         "step": "start",
         "core_namespace": core_ns,
-        "tenant_namespace": tenant_ns,
+        "tenant_namespaces": tenant_ns_list,
         "steps": [],
     }
 
     if not core_ns or not tenant_ns_list:
         resp["step"] = "validate_payload"
-        resp["stderr"] = "core_namespace and tenant_namespaces are required"
+        resp["stderr"] = "core_namespace and tenants[] (with namespace) are required"
         return resp
 
     # 1) Read core repo secret from the core namespace
@@ -125,12 +135,12 @@ def tenant_config_impl(*, payload: Dict[str, Any], jobs_namespace: str) -> Dict[
     git_type = core_repo["auth_type"]
     tls_insecure = bool(core_repo.get("tls_insecure_verify", False))
 
-    # 2) Workspace + clone
-    run_id, workspace_path = create_workspace("tenant-config", tenant_ns)
+    # 2) Workspace + clone (use a stable name, not a tenant var)
+    run_id, workspace_path = create_workspace("tenant-config", "tenant-config")
     resp["workspace"] = {"name": run_id, "path": workspace_path}
     logging.warning("tenant-config job %s starting", run_id)
 
-    # Shim req.git so your existing helpers work
+    # Shim req.git so existing helpers work
     class _Git:
         def __init__(self) -> None:
             self.repo_url = repo_url
@@ -144,14 +154,12 @@ def tenant_config_impl(*, payload: Dict[str, Any], jobs_namespace: str) -> Dict[
             self.insecure_skip_tls_verify = tls_insecure
             self.author_name = "Greymatter Automation"
             self.author_email = "greymatter-bot@greymatter.io"
-            
+
             if git_type == "https":
                 self.username = core_repo.get("http_username") or "oauth2"
                 self.token = core_repo.get("http_password")
                 self.password = None
-                
             else:
-                # If you ever use ssh secrets later, wire those keys in here
                 self.username = None
                 self.known_hosts = None
                 self.ssh_private_key = None
@@ -159,7 +167,7 @@ def tenant_config_impl(*, payload: Dict[str, Any], jobs_namespace: str) -> Dict[
     class _Req:
         def __init__(self) -> None:
             self.git = _Git()
-            self.workspace_name = tenant_ns
+            self.workspace_name = payload.get("workspace_name")
 
     req = _Req()
     git_env = build_git_env(req, workspace_path=workspace_path)
@@ -180,25 +188,30 @@ def tenant_config_impl(*, payload: Dict[str, Any], jobs_namespace: str) -> Dict[
     if id_step.get("returncode", 1) != 0:
         return fail("git identity", id_step, response=resp)
 
-    # 3) Edit config.cue
+    # 3) Edit config.cue ONCE with the full list
     config_path = Path(dest_path) / "config.cue"
-    edit_step = update_tenant_namespaces(config_path, tenant_ns)
-    resp["steps"].append({"name": "edit_config_cue_tenant_namespaces", **edit_step})
+    edit_step = update_tenant_namespaces(config_path, tenant_ns_list)
+    resp["steps"].append({"name": "edit_config_cue_tenant_namespaces", "tenants": tenant_ns_list, **edit_step})
     if edit_step.get("returncode", 1) != 0:
         return fail("edit config.cue tenant_namespaces", edit_step, response=resp)
 
-    # 4) Commit + push
+    # 4) Commit + push ONCE
     commit_step = do_commit_push(
         req,
         dest_path=dest_path,
         git_env=git_env,
-        message=f"chore: add tenant namespace {tenant_ns}",
+        message=f"chore: update tenant namespaces ({', '.join(tenant_ns_list)})",
     )
     resp["steps"].append(commit_step)
     if commit_step.get("returncode") not in (None, 0):
         return fail("git commit & push", commit_step, response=resp)
 
     resp["step"] = "tenant_config_done"
-    resp["result"] = {"core_namespace": core_ns, "repo_url": repo_url, "branch": branch, "tenant_added": tenant_ns}
+    resp["result"] = {
+        "core_namespace": core_ns,
+        "repo_url": repo_url,
+        "branch": branch,
+        "tenants_added": tenant_ns_list,
+    }
     resp["returncode"] = 0
     return resp
