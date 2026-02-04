@@ -33,6 +33,7 @@ class TenantItem(BaseModel):
     project_settings: CreateProjectSettings = Field(default_factory=CreateProjectSettings)  # reuse your existing CreateProjectReq if you prefer
     script: CreateProjectScript = Field(default_factory=CreateProjectScript)
     git: GitOverrides = Field(default_factory=GitOverrides)
+    env_vars: Dict[str, str] = Field(default_factory=dict)
 
 class BootstrapTenantReq(BaseModel):
     workspace_name: Optional[str] = None

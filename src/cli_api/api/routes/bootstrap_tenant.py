@@ -96,11 +96,19 @@ def api_bootstrap_tenant(req: BootstrapTenantReq, x_api_token: Optional[str] = H
                 status_code=400,
                 detail=f"tenants[{idx}].script.enabled=true requires tenants[{idx}].script.configmap_name",
             )
+        tenant_env = _as_dict(getattr(tenant, "env_vars", None))
+
+        # enforce k8s env var name rules (optional but recommended)
+        import re
+        bad_keys = [k for k in tenant_env.keys() if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", k)]
+        if bad_keys:
+            raise HTTPException(status_code=400, detail=f"tenants[{idx}].env_vars has invalid keys: {bad_keys}")
 
         normalized_tenants.append({
             "namespace": ns,
             "project_settings": _as_dict(getattr(tenant, "project_settings", {})),
             "git_overrides": tenant_overrides,
+            "env_vars": tenant_env,
             "script": {
                 "enabled": script_enabled,
                 "configmap_name": script_cfg.configmap_name,
@@ -130,7 +138,8 @@ def api_bootstrap_tenant(req: BootstrapTenantReq, x_api_token: Optional[str] = H
                 "namespace": tenant_ns,
                 "project_settings": t["project_settings"],
                 "script": t["script"],
-                "git": t["git_overrides"],           # per-tenant overrides (includes repo_url)
+                "git": t["git_overrides"],
+                "env_vars": t["env_vars"],
             }],
         }
 
@@ -156,6 +165,7 @@ def api_bootstrap_tenant(req: BootstrapTenantReq, x_api_token: Optional[str] = H
                 "CLI_API_WORKDIR": "/work",
                 "CLI_API_JOBS_NAMESPACE": jobs_ns,
                 "WORKFLOW_NAME": "bootstrap-tenant",
+                **t["env_vars"],
             },
             ttl_seconds_after_finished=3600,
             script_configmap_name=script_cm,

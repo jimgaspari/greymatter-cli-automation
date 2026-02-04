@@ -6,5 +6,9 @@ metadata:
 data:
     bootstrap.sh: |
         greymatter create service --protocol tcp \
-            --upstream-port 5432 postgres \
-            --upstream-spire-subject $FLASK_NAMESPACE-flask
+            --upstream-port 5432 postgres 
+        greymatter create listener postgres --service postgres \
+            --ingress --protocol tcp --spire-subject $FLASK_NAMESPACE-flask --force
+        greymatter create upstream --listener postgres \
+            --service postgres --protocol tcp \
+            --host 127.0.0.1 --port 5432

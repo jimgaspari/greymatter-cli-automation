@@ -62,6 +62,9 @@ jq -n \
           "repo_url": "https://gitea.home.pogotech.net/jimgaspari/auto-cli-flask.git",
           "base_branch": "main"
         },
+        "env_vars": {
+          "PSQL_NAMESPACE": "postgres"
+        }
       },
       {
         "namespace": "postgres",
@@ -76,6 +79,9 @@ jq -n \
           "repo_url": "https://gitea.home.pogotech.net/jimgaspari/auto-cli-psql.git",
           "base_branch": "main"
         },
+        "env_vars": {
+          "FLASK_NAMESPACE": "flask"
+        }
       }
     ]
   }' \

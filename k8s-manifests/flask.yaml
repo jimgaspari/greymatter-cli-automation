@@ -9,7 +9,10 @@ data:
 
         greymatter create service --edge edge \
             --protocol http --upstream-port 5000 flask
-            
+
+        greymatter create listener flask-to-postgres \
+            --service flask --egress \
+            --port 5432 --protocol tcp
         greymatter create upstream  \
             --service flask --listener flask-to-postgres  \
             --target postgres --target-namespace $PSQL_NAMESPACE
